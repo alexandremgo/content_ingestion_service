@@ -1,5 +1,3 @@
-/// Parse a string containing an epub content (with HTML element) into a string
-
 const HTML_ELEMENTS_NEEDING_A_SPACE: [&str; 11] = [
     "p",
     "h1",

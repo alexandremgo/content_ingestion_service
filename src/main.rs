@@ -1,7 +1,7 @@
 mod domain;
 
 use epub::doc::EpubDoc;
-use crate::domain::extract_content::extract_content;
+use crate::domain::services::extract_content::extract_content;
 
 fn main() {
     println!("Hello, world!");
