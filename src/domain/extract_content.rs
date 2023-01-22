@@ -29,15 +29,15 @@ const HTML_ELEMENTS_NEEDING_A_SPACE: [&str; 11] = [
 ///
 /// # Examples
 /// ```
-/// use epub::parser::extract_content;
+/// use epub::domain::extract_content::extract_content;
 ///
 /// let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-/// let parsed_content = extract_content(content);
-/// assert_eq!(parsed_content, "Test");
+/// let extracted_content = extract_content(content);
+/// assert_eq!(extracted_content, "Test");
 /// ```
 pub fn extract_content(epub_content: &str) -> String {
     // let mut current_html_elements = std::collections::HashMap::<String, u32>::new();
-    let mut parsed_content = String::new();
+    let mut extracted_content = String::new();
 
     let mut is_inside_body = false;
     let mut might_be_html_element = false;
@@ -56,8 +56,8 @@ pub fn extract_content(epub_content: &str) -> String {
             if c == '<' {
                 previous_char_is_an_opening = true;
                 if is_inside_body {
-                    parsed_content.push('<');
-                    parsed_content.push_str(&current_possible_html_element);
+                    extracted_content.push('<');
+                    extracted_content.push_str(&current_possible_html_element);
                 }
 
                 current_possible_html_element = String::new();
@@ -72,10 +72,10 @@ pub fn extract_content(epub_content: &str) -> String {
                 if is_inside_body
                     && HTML_ELEMENTS_NEEDING_A_SPACE
                         .contains(&current_possible_html_element.as_str())
-                    && parsed_content.len() > 0
-                    && !parsed_content.ends_with(' ')
+                    && extracted_content.len() > 0
+                    && !extracted_content.ends_with(' ')
                 {
-                    parsed_content.push(' ');
+                    extracted_content.push(' ');
                 }
 
                 // TODO: handles the case where there is a < and a > but it's actual content
@@ -91,7 +91,7 @@ pub fn extract_content(epub_content: &str) -> String {
 
                 // The previous string is part of the content of the epub
                 if is_inside_body {
-                    parsed_content.push_str(&current_possible_html_element);
+                    extracted_content.push_str(&current_possible_html_element);
                 }
                 current_possible_html_element = String::new();
             } else {
@@ -105,11 +105,11 @@ pub fn extract_content(epub_content: &str) -> String {
             previous_char_is_an_opening = true;
             might_be_html_element = true;
         } else if is_inside_body {
-            parsed_content.push(c);
+            extracted_content.push(c);
         }
     }
 
-    parsed_content
+    extracted_content
 }
 
 #[cfg(test)]
@@ -121,31 +121,33 @@ mod tests {
     use std::io::{BufRead, BufReader, Read};
 
     speculate! {
-        describe "On a simple and correct EPUB content" {
-            it "it should extract the content correctly" {
-                let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-                let parsed_content = extract_content(content);
-                assert_eq!(parsed_content, "Test");
+        describe "extract_content" {
+            describe "On a simple and correct EPUB content" {
+                it "it should extract the content correctly" {
+                    let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
+                    let extracted_content = extract_content(content);
+                    assert_eq!(extracted_content, "Test");
+                }
             }
-        }
 
-        describe "On a more complex and correct EPUB content" {
-            it "it should extract the content correctly" {
-                let mut file = std::fs::File::open("src/parser/tests/simple_1.txt").unwrap();
-                let file_reader = BufReader::new(file);
-                let mut lines_iter = file_reader.lines();
-                let content = lines_iter.next().unwrap().unwrap();
-                lines_iter.next();
-                let result = lines_iter.next().unwrap().unwrap();
+            describe "On a more complex and correct EPUB content" {
+                it "it should extract the content correctly" {
+                    let mut file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
+                    let file_reader = BufReader::new(file);
+                    let mut lines_iter = file_reader.lines();
+                    let content = lines_iter.next().unwrap().unwrap();
+                    lines_iter.next();
+                    let result = lines_iter.next().unwrap().unwrap();
 
-                println!("content simple_1: {}", content);
-                println!("🦀");
-                println!("result simple_1: {}", result);
+                    println!("content simple_1: {}", content);
+                    println!("🦀");
+                    println!("result simple_1: {}", result);
 
-                let extracted_content = extract_content(&content);
-                println!("💙");
-                println!("extracted content simple_1: {}", extracted_content);
-                assert_eq!(extracted_content, result);
+                    let extracted_content = extract_content(&content);
+                    println!("💙");
+                    println!("extracted content simple_1: {}", extracted_content);
+                    assert_eq!(extracted_content, result);
+                }
             }
         }
     }

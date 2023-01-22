@@ -1,7 +1,7 @@
-mod parser;
+mod domain;
 
 use epub::doc::EpubDoc;
-use crate::parser::parser_content::extract_content;
+use crate::domain::extract_content::extract_content;
 
 fn main() {
     println!("Hello, world!");
