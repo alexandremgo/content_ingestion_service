@@ -1,0 +1,11 @@
+[package]
+name = "read_epub"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+epub = "2.0.0"
+
+[dev-dependencies]
+speculate = "0.1"
+serial_test = "*"
