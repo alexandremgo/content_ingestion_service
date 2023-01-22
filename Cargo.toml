@@ -1,5 +1,5 @@
 [package]
-name = "read_epub"
+name = "extract_from_epub"
 version = "0.1.0"
 edition = "2021"
 
