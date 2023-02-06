@@ -29,13 +29,19 @@ const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 /// Does not handle epub content containing HTML elements as the actual content of the epub.
 ///
 /// TODO: remove any space between , . ; : ? ! and the previous and next words ?
+/// 
+/// To be able to move the Generator, genawaiter::rc is used.
 ///
 /// # Arguments
 /// * `buf_reader` - A buffer to a content implementing Read. This buffer is moved to the function to avoid
 ///    reading in different places from the same buffer.
 ///
 /// # Returns
-/// A string containing the content of an epub file, without the HTML elements
+/// A generator that yields the content of the epub progressively.
+/// The generator is wrapped in a Pin<Box<...>> because, like Future, a Generator can hold a reference into another field of
+/// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
+/// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references 
+/// to values inside the generator block.
 ///
 /// # Examples
 /// ```
@@ -45,12 +51,14 @@ const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 /// let extracted_content = extract_content(content);
 /// assert_eq!(extracted_content, "Test");
 /// ```
-pub fn extract_content_generator<ContentToReadType>(
+// TODO: HERE: check the Pin<Box ...
+// 
+pub fn extract_content_generator<'box_lt, ContentToReadType>(
     buf_reader: BufReader<ContentToReadType>,
     nb_words_per_yield: Option<usize>,
-) -> Pin<Box<dyn Generator<Yield = String, Return = Result<(), ()>>>>
+) -> Pin<Box<dyn Generator<Yield = String, Return = Result<(), ()>> + 'box_lt>>
 where
-    ContentToReadType: std::io::Read + 'static,
+    ContentToReadType: std::io::Read + 'box_lt,
 {
     let nb_words_per_yield = nb_words_per_yield.unwrap_or(DEFAULT_NB_WORDS_PER_YIELD);
 
@@ -152,6 +160,10 @@ where
         Ok(())
     });
 
+    // Allocates the generator to the heap so it can be returned as a trait object,
+    // and pin the generator to a particular spot in the heap memory
+    // The signature of rc::Generator resume is:
+    // fn resume(self: Pin<&mut Self>) -> GeneratorState<Self::Yield, Self::Return>
     Box::pin(generator)
 }
 
@@ -170,7 +182,6 @@ mod tests {
                     let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
                     let buf_reader = BufReader::new(content.as_bytes());
                     let mut generator = extract_content_generator(buf_reader, None);
-                    // TODO: HERE: last update: this is a bit complicated, no ?
                     let extracted_content = match generator.as_mut().resume() {
                         GeneratorState::Yielded(content) => content,
                         _ => panic!("Unexpected generator state"),
@@ -180,41 +191,52 @@ mod tests {
             }
 
 
-//             describe "On a multiline and correct EPUB content" {
-//                 it "it should extract the content correctly" {
-//                     let content = "\
-// <html>
-//     <head><title>Test</title></head>
-//     <body>
-//         <p>Test</p>
-//     </body>
-// </html>";
-//                     let buf_reader = BufReader::new(content.as_bytes());
-//                     let extracted_content = extract_content_generator(ExtractContentGeneratorArgs { buf_reader, nb_words_per_yield: None });
-//                     assert_eq!(extracted_content, "Test");
-//                 }
-//             }
+            describe "On a multiline and correct EPUB content" {
+                it "it should extract the content correctly" {
+                    let content = "\
+<html>
+    <head><title>Test</title></head>
+    <body>
+        <p>Test</p>
+    </body>
+</html>";
+                    let buf_reader = BufReader::new(content.as_bytes());
 
-//             describe "On a more complex and correct EPUB content" {
-//                 it "it should extract the content correctly" {
-//                     let mut file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
-//                     let file_reader = BufReader::new(file);
-//                     let mut lines_iter = file_reader.lines();
-//                     let content = lines_iter.next().unwrap().unwrap();
-//                     lines_iter.next();
-//                     let result = lines_iter.next().unwrap().unwrap();
+                    let mut generator = extract_content_generator(buf_reader, None);
+                    let extracted_content = match generator.as_mut().resume() {
+                        GeneratorState::Yielded(content) => content,
+                        _ => panic!("Unexpected generator state"),
+                    };
+                    assert_eq!(extracted_content, "Test");
+                }
+            }
 
-//                     println!("content simple_1: {}", content);
-//                     println!("🦀");
-//                     println!("result simple_1: {}", result);
+            describe "On a more complex and correct EPUB content" {
+                it "it should extract the content correctly" {
+                    let file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
+                    let file_reader = BufReader::new(file);
+                    let mut lines_iter = file_reader.lines();
+                    let content = lines_iter.next().unwrap().unwrap();
+                    lines_iter.next();
+                    let result = lines_iter.next().unwrap().unwrap();
 
-//                     let buf_reader = BufReader::new(content.as_bytes());
-//                     let extracted_content = extract_content_generator(ExtractContentGeneratorArgs { buf_reader, nb_words_per_yield: None });
-//                     println!("💙");
-//                     println!("extracted content simple_1: {}", extracted_content);
-//                     assert_eq!(extracted_content, result);
-//                 }
-//             }
+                    println!("content simple_1: {}", content);
+                    println!("🦀");
+                    println!("result simple_1: {}", result);
+
+                    let buf_reader = BufReader::new(content.as_bytes());
+
+                    let mut generator = extract_content_generator(buf_reader, None);
+                    let extracted_content = match generator.as_mut().resume() {
+                        GeneratorState::Yielded(extracted_content) => extracted_content,
+                        _ => panic!("Unexpected generator state"),
+                    };
+
+                    println!("💙");
+                    println!("extracted content simple_1: {}", extracted_content);
+                    assert_eq!(extracted_content, result);
+                }
+            }
         }
     }
 }
