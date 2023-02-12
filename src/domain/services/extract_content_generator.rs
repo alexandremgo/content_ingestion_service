@@ -1,24 +1,40 @@
-use std::{io::{BufRead, BufReader, Read}, pin::Pin};
+use std::{
+    io::{BufRead, BufReader, Read},
+    pin::Pin,
+    cmp::min,
+};
 
 use genawaiter::{rc::gen, yield_, Generator, GeneratorState};
 
 // TODO: HERE: use a generator to yield progressively the extracted content of the epub file
 
 const HTML_ELEMENTS_NEEDING_A_SPACE: [&str; 11] = [
-    "p",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "li",
-    "ul",
-    "ol",
-    "blockquote",
+    "<p",
+    "<h1",
+    "<h2",
+    "<h3",
+    "<h4",
+    "<h5",
+    "<h6",
+    "<li",
+    "<ul",
+    "<ol",
+    "<blockquote",
 ];
 
+const SPECIAL_CHARS_FOR_COUNTING_WORDS: [&str; 6] = [",", ".", ";", ":", "?", "!"];
+
 const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
+
+// TODO: handle html elements with properties
+// Could also add: current_possible_html_element etc.
+// struct HtmlElementState {
+//     pub number_spaces: u32,
+//     pub is_property_name: bool,
+//     // Transitions to true on '=' and is_property_name === true.
+//     // Transitions to false on ' '
+//     pub is_property_value: bool,
+// }
 
 /// Excrats the content (without the HTML elements) of an epub fileontent of an epub file, by returning
 /// a generator that yields the content progressively.
@@ -29,7 +45,7 @@ const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 /// Does not handle epub content containing HTML elements as the actual content of the epub.
 ///
 /// TODO: remove any space between , . ; : ? ! and the previous and next words ?
-/// 
+///
 /// To be able to move the Generator, genawaiter::rc is used.
 ///
 /// # Arguments
@@ -40,7 +56,7 @@ const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 /// A generator that yields the content of the epub progressively.
 /// The generator is wrapped in a Pin<Box<...>> because, like Future, a Generator can hold a reference into another field of
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
-/// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references 
+/// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
 ///
 /// # Examples
@@ -51,8 +67,7 @@ const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 /// let extracted_content = extract_content(content);
 /// assert_eq!(extracted_content, "Test");
 /// ```
-// TODO: HERE: check the Pin<Box ...
-// 
+//
 pub fn extract_content_generator<'box_lt, ContentToReadType>(
     buf_reader: BufReader<ContentToReadType>,
     nb_words_per_yield: Option<usize>,
@@ -68,12 +83,14 @@ where
 
         let mut is_inside_body = false;
         let mut might_be_html_element = false;
-        let mut previous_char_is_an_opening = false;
 
         // Stores a possible currently being extracted html element to:
         // - check if it is a `body` or any other html element
         // - or to add its content to the current_extracted_content if it's not an html element
         let mut current_possible_html_element = String::new();
+        let mut current_possible_html_element_number_of_spaces = 0;
+
+        let mut current_nb_words = 0;
 
         // Reads lines one by one, and for each line, read characters one by one
         // TODO: careful/check when none utf-8 characters
@@ -83,23 +100,25 @@ where
         for line in buf_reader.lines() {
             let line = line.unwrap();
             println!("🥐 line: {}", line);
+
             for c in line.chars() {
                 if might_be_html_element {
                     // An opening < has already been seen. If among the next characters there is a new opening <,
                     // then the string since the previous < is part of the content of the epub.
                     // And the new < could be an html element.
                     if c == '<' {
-                        previous_char_is_an_opening = true;
                         if is_inside_body {
-                            current_extracted_content.push('<');
                             current_extracted_content.push_str(&current_possible_html_element);
+                            // 1 for < and 1 for each space after each word
+                            current_nb_words += current_possible_html_element_number_of_spaces + 1;
                         }
 
                         current_possible_html_element = String::new();
+                        current_possible_html_element.push('<');
                     } else if c == '>' {
-                        if current_possible_html_element == "body" {
+                        if current_possible_html_element == "<body" {
                             is_inside_body = true;
-                        } else if current_possible_html_element == "/body" {
+                        } else if current_possible_html_element == "</body" {
                             is_inside_body = false;
                         }
 
@@ -116,37 +135,71 @@ where
                         // TODO: handles the case where there is a < and a > but it's actual content
 
                         might_be_html_element = false;
-                        previous_char_is_an_opening = false;
                         current_possible_html_element = String::new();
                     }
-                    // A space is only possible at the end of an HTML element
-                    else if previous_char_is_an_opening && c == ' ' {
-                        might_be_html_element = false;
-                        previous_char_is_an_opening = false;
+                    // TODO: protection on length of possible html element
+                    //else if current_possible_html_element.len() > 30 {
+                    else if c == ' ' {
+                        // A space is not possible just after the HTML openening, or after another one
+                        // TODO: currently does not handle element with props correctly
+                        // And if a "<word" happens, current_extracted_content could become huge until it is stopped
+                        if current_possible_html_element.ends_with('<')
+                            || current_possible_html_element.ends_with(' ')
+                        {
+                            might_be_html_element = false;
 
-                        // The previous string is part of the content of the epub
-                        if is_inside_body {
-                            current_extracted_content.push_str(&current_possible_html_element);
+                            // The previous string is part of the content of the epub
+                            if is_inside_body {
+                                // Adds the space if the previous character was not a space
+                                if !current_possible_html_element.ends_with(' ') {
+                                    current_possible_html_element.push(' ');
+                                }
+                                current_extracted_content.push_str(&current_possible_html_element);
+                                // 1 for < and 1 for each space after each word
+                                current_nb_words +=
+                                    current_possible_html_element_number_of_spaces + 1;
+                            }
+
+                            current_possible_html_element = String::new();
+                        } else {
+                            current_possible_html_element_number_of_spaces += 1;
+                            current_possible_html_element.push(c);
                         }
-                        current_possible_html_element = String::new();
                     } else {
                         current_possible_html_element.push(c);
-                        previous_char_is_an_opening = false;
                     }
                 }
                 // Needs to check if < represents the beginning of an HTML element, or if it's a simple character in the content
                 else if c == '<' {
                     // The case with a second < is handled in the might_be_html_element block
-                    previous_char_is_an_opening = true;
+                    current_possible_html_element.push('<');
                     might_be_html_element = true;
                 } else if is_inside_body {
                     // Avoids adding unecessary spaces
-                    if c != ' '
-                        || (current_extracted_content.len() > 0
-                            && !current_extracted_content.ends_with(' '))
-                    {
+                    if c == ' ' && current_extracted_content.len() > 0 && !current_extracted_content.ends_with(' ') {
+                        current_extracted_content.push(c);
+                        current_nb_words += 1;
+                    } else if SPECIAL_CHARS_FOR_COUNTING_WORDS.contains(&c.to_string().as_str()) {
+                        current_extracted_content.push(c);
+
+                        // TODO: handles successive special chars ?
+                        if current_extracted_content.ends_with(' ') {
+                            current_nb_words += 1;
+                        } else {
+                            current_nb_words += 2;
+                        }
+                    } else if c != ' ' {
                         current_extracted_content.push(c);
                     }
+                }
+
+                // Yields the current_extracted_content if it contains enough words
+                // TODO: handle the case where not an html element but the content was bigger than the max number of words
+                // Cannot just loop and slice because it needs to count the number of words and special chars
+                if current_nb_words >= nb_words_per_yield {
+                    yield_!(current_extracted_content);
+                    current_extracted_content = String::new();
+                    current_nb_words = 0;
                 }
             }
         }
@@ -156,6 +209,7 @@ where
             current_extracted_content.pop();
         }
 
+        // Yields the remaining content
         yield_!(current_extracted_content);
         Ok(())
     });
@@ -177,65 +231,121 @@ mod tests {
 
     speculate! {
         describe "extract_content_generator" {
-            describe "On a simple and correct EPUB content" {
-                it "it should extract the content correctly" {
-                    let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
+            describe "On an empty EPUB content" {
+                it "it should extract an empty content" {
+                    let content = "";
                     let buf_reader = BufReader::new(content.as_bytes());
                     let mut generator = extract_content_generator(buf_reader, None);
                     let extracted_content = match generator.as_mut().resume() {
                         GeneratorState::Yielded(content) => content,
                         _ => panic!("Unexpected generator state"),
                     };
-                    assert_eq!(extracted_content, "Test");
+                    assert_eq!(extracted_content, "");
                 }
             }
 
+            describe "When the number of words in the EPUB content is < to nb_words_per_yield (only 1 yield)" {
+                describe "On a simple and correct EPUB content" {
+                    it "it should extract the content correctly in 1 yield" {
+                        let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
+                        let buf_reader = BufReader::new(content.as_bytes());
+                        let mut generator = extract_content_generator(buf_reader, None);
+                        let extracted_content = match generator.as_mut().resume() {
+                            GeneratorState::Yielded(content) => content,
+                            _ => panic!("Unexpected generator state"),
+                        };
+                        assert_eq!(extracted_content, "Test");
+                    }
+                }
 
-            describe "On a multiline and correct EPUB content" {
-                it "it should extract the content correctly" {
-                    let content = "\
-<html>
-    <head><title>Test</title></head>
-    <body>
-        <p>Test</p>
-    </body>
-</html>";
-                    let buf_reader = BufReader::new(content.as_bytes());
 
-                    let mut generator = extract_content_generator(buf_reader, None);
-                    let extracted_content = match generator.as_mut().resume() {
-                        GeneratorState::Yielded(content) => content,
-                        _ => panic!("Unexpected generator state"),
-                    };
-                    assert_eq!(extracted_content, "Test");
+                describe "On a multiline and correct EPUB content" {
+                    it "it should extract the content correctly in 1 yield" {
+                        let content = "\
+    <html>
+        <head><title>Test</title></head>
+        <body>
+            <p>Test</p>
+        </body>
+    </html>";
+                        let buf_reader = BufReader::new(content.as_bytes());
+
+                        let mut generator = extract_content_generator(buf_reader, None);
+                        let extracted_content = match generator.as_mut().resume() {
+                            GeneratorState::Yielded(content) => content,
+                            _ => panic!("Unexpected generator state"),
+                        };
+                        assert_eq!(extracted_content, "Test");
+                    }
+                }
+
+                describe "On an EPUB content with some opening < chars not representing an HTML element" {
+                    it "it should extract the content correctly in 1 yield" {
+                        // Pay attention to the double spaces
+                        let content = "< incorrect<incorrect  <body><p>Test <partOfContent  < partOfContentToo <ok</p></body>";
+                        let buf_reader = BufReader::new(content.as_bytes());
+                        let mut generator = extract_content_generator(buf_reader, None);
+                        let extracted_content = match generator.as_mut().resume() {
+                            GeneratorState::Yielded(content) => content,
+                            _ => panic!("Unexpected generator state"),
+                        };
+                        assert_eq!(extracted_content, "Test <partOfContent < partOfContentToo <ok");
+                    }
+                }
+
+
+                describe "On a more complex and correct EPUB content" {
+                    it "it should extract the content correctly in 1 yield" {
+                        let file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
+                        let file_reader = BufReader::new(file);
+                        let mut lines_iter = file_reader.lines();
+                        let content = lines_iter.next().unwrap().unwrap();
+                        lines_iter.next();
+                        let result = lines_iter.next().unwrap().unwrap();
+
+                        println!("content simple_1: {}", content);
+                        println!("🦀");
+                        println!("result simple_1: {}", result);
+
+                        let buf_reader = BufReader::new(content.as_bytes());
+
+                        let mut generator = extract_content_generator(buf_reader, None);
+                        let extracted_content = match generator.as_mut().resume() {
+                            GeneratorState::Yielded(extracted_content) => extracted_content,
+                            _ => panic!("Unexpected generator state"),
+                        };
+
+                        println!("💙");
+                        println!("extracted content simple_1: {}", extracted_content);
+                        assert_eq!(extracted_content, result);
+                    }
                 }
             }
 
-            describe "On a more complex and correct EPUB content" {
-                it "it should extract the content correctly" {
-                    let file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
-                    let file_reader = BufReader::new(file);
-                    let mut lines_iter = file_reader.lines();
-                    let content = lines_iter.next().unwrap().unwrap();
-                    lines_iter.next();
-                    let result = lines_iter.next().unwrap().unwrap();
+            describe "When the number of words in the EPUB content is > to nb_words_per_yield (more than 1 yield)" {
+                describe "On a simple and correct EPUB content with: nb_words_per_yield < number of words < 2 * nb_words_per_yield" {
+                    it "it should extract the content correctly in 2 yields" {
+                        let content = "<html><head><title>Test</title></head><body><p>It is nice to finally meet you. Would you like some coffee ?</p></body></html>";
+                        let buf_reader = BufReader::new(content.as_bytes());
+                        let mut generator = extract_content_generator(buf_reader, Some(8));
 
-                    println!("content simple_1: {}", content);
-                    println!("🦀");
-                    println!("result simple_1: {}", result);
+                        let yielded_extracted_content = match generator.as_mut().resume() {
+                            GeneratorState::Yielded(content) => content,
+                            _ => panic!("Unexpected generator state"),
+                        };
+                        assert_eq!(yielded_extracted_content, "It is nice to finally meet you.");
 
-                    let buf_reader = BufReader::new(content.as_bytes());
-
-                    let mut generator = extract_content_generator(buf_reader, None);
-                    let extracted_content = match generator.as_mut().resume() {
-                        GeneratorState::Yielded(extracted_content) => extracted_content,
-                        _ => panic!("Unexpected generator state"),
-                    };
-
-                    println!("💙");
-                    println!("extracted content simple_1: {}", extracted_content);
-                    assert_eq!(extracted_content, result);
+                        let yielded_extracted_content = match generator.as_mut().resume() {
+                            GeneratorState::Yielded(content) => content,
+                            _ => panic!("Unexpected generator state"),
+                        };
+                        assert_eq!(yielded_extracted_content, "Would you like some coffee ?");
+                    }
                 }
+
+                // TODO: here next time:
+                // - test with an example with more yield
+                // - implement and test watchdog on size of the current possible html element
             }
         }
     }
