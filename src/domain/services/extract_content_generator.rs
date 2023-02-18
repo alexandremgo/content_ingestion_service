@@ -1,12 +1,9 @@
 use std::{
     io::{BufRead, BufReader, Read},
     pin::Pin,
-    cmp::min,
 };
 
-use genawaiter::{rc::gen, yield_, Generator, GeneratorState};
-
-// TODO: HERE: use a generator to yield progressively the extracted content of the epub file
+use genawaiter::{rc::gen, yield_, Generator};
 
 const HTML_ELEMENTS_NEEDING_A_SPACE: [&str; 11] = [
     "<p",
@@ -22,9 +19,10 @@ const HTML_ELEMENTS_NEEDING_A_SPACE: [&str; 11] = [
     "<blockquote",
 ];
 
-const SPECIAL_CHARS_FOR_COUNTING_WORDS: [&str; 6] = [",", ".", ";", ":", "?", "!"];
+const SPECIAL_CHARS_FOR_COUNTING_WORDS: [char; 6] = [',', '.', ';', ':', '?', '!'];
 
 const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
+const LIMIT_NB_WORDS_IN_HTML_ELEMENT: usize = 30;
 
 // TODO: handle html elements with properties
 // Could also add: current_possible_html_element etc.
@@ -88,7 +86,7 @@ where
         // - check if it is a `body` or any other html element
         // - or to add its content to the current_extracted_content if it's not an html element
         let mut current_possible_html_element = String::new();
-        let mut current_possible_html_element_number_of_spaces = 0;
+        let mut current_possible_html_element_nb_spaces = 0;
 
         let mut current_nb_words = 0;
 
@@ -110,9 +108,10 @@ where
                         if is_inside_body {
                             current_extracted_content.push_str(&current_possible_html_element);
                             // 1 for < and 1 for each space after each word
-                            current_nb_words += current_possible_html_element_number_of_spaces + 1;
+                            current_nb_words += current_possible_html_element_nb_spaces + 1;
                         }
 
+                        current_possible_html_element_nb_spaces = 0;
                         current_possible_html_element = String::new();
                         current_possible_html_element.push('<');
                     } else if c == '>' {
@@ -132,17 +131,31 @@ where
                             current_extracted_content.push(' ');
                         }
 
-                        // TODO: handles the case where there is a < and a > but it's actual content
+                        // TODO: better handle the case where there is a < and a > but it's actual content
 
                         might_be_html_element = false;
                         current_possible_html_element = String::new();
                     }
-                    // TODO: protection on length of possible html element
-                    //else if current_possible_html_element.len() > 30 {
-                    else if c == ' ' {
+                    // Protects against an opening < followed by too many words
+                    // Possible to improve this a lot.
+                    else if current_possible_html_element_nb_spaces
+                        > LIMIT_NB_WORDS_IN_HTML_ELEMENT
+                    {
+                        current_possible_html_element.push(c);
+
+                        if is_inside_body {
+                            current_extracted_content.push_str(&current_possible_html_element);
+                            // 1 for < and 1 for each space after each word
+                            current_nb_words += current_possible_html_element_nb_spaces + 1;
+                        }
+
+                        current_possible_html_element_nb_spaces = 0;
+                        might_be_html_element = false;
+                        current_possible_html_element = String::new();
+                    } else if c == ' ' {
                         // A space is not possible just after the HTML openening, or after another one
                         // TODO: currently does not handle element with props correctly
-                        // And if a "<word" happens, current_extracted_content could become huge until it is stopped
+                        // TODO: And if a "<word" happens, current_extracted_content could become huge until it is stopped
                         if current_possible_html_element.ends_with('<')
                             || current_possible_html_element.ends_with(' ')
                         {
@@ -156,13 +169,12 @@ where
                                 }
                                 current_extracted_content.push_str(&current_possible_html_element);
                                 // 1 for < and 1 for each space after each word
-                                current_nb_words +=
-                                    current_possible_html_element_number_of_spaces + 1;
+                                current_nb_words += current_possible_html_element_nb_spaces + 1;
                             }
 
                             current_possible_html_element = String::new();
                         } else {
-                            current_possible_html_element_number_of_spaces += 1;
+                            current_possible_html_element_nb_spaces += 1;
                             current_possible_html_element.push(c);
                         }
                     } else {
@@ -176,18 +188,28 @@ where
                     might_be_html_element = true;
                 } else if is_inside_body {
                     // Avoids adding unecessary spaces
-                    if c == ' ' && current_extracted_content.len() > 0 && !current_extracted_content.ends_with(' ') {
-                        current_extracted_content.push(c);
-                        current_nb_words += 1;
-                    } else if SPECIAL_CHARS_FOR_COUNTING_WORDS.contains(&c.to_string().as_str()) {
-                        current_extracted_content.push(c);
+                    if c == ' '
+                        && current_extracted_content.len() > 0
+                        && !current_extracted_content.ends_with(' ')
+                    {
+                        // A special char is already counted when iterating on it. A space after a special char does not represents a new word
+                        if !current_extracted_content.ends_with(&SPECIAL_CHARS_FOR_COUNTING_WORDS) {
+                            current_nb_words += 1;
+                        }
 
-                        // TODO: handles successive special chars ?
-                        if current_extracted_content.ends_with(' ') {
+                        current_extracted_content.push(c);
+                    } else if SPECIAL_CHARS_FOR_COUNTING_WORDS.contains(&c) {
+                        if current_extracted_content.len() == 0
+                            || current_extracted_content.ends_with(' ')
+                            || current_extracted_content
+                                .ends_with(&SPECIAL_CHARS_FOR_COUNTING_WORDS)
+                        {
                             current_nb_words += 1;
                         } else {
                             current_nb_words += 2;
                         }
+
+                        current_extracted_content.push(c);
                     } else if c != ' ' {
                         current_extracted_content.push(c);
                     }
@@ -197,6 +219,9 @@ where
                 // TODO: handle the case where not an html element but the content was bigger than the max number of words
                 // Cannot just loop and slice because it needs to count the number of words and special chars
                 if current_nb_words >= nb_words_per_yield {
+                    current_extracted_content =
+                        clean_content_before_yield(&current_extracted_content);
+
                     yield_!(current_extracted_content);
                     current_extracted_content = String::new();
                     current_nb_words = 0;
@@ -204,10 +229,7 @@ where
             }
         }
 
-        // Removes last space if there is one
-        if current_extracted_content.len() > 0 && current_extracted_content.ends_with(' ') {
-            current_extracted_content.pop();
-        }
+        current_extracted_content = clean_content_before_yield(&current_extracted_content);
 
         // Yields the remaining content
         yield_!(current_extracted_content);
@@ -215,10 +237,23 @@ where
     });
 
     // Allocates the generator to the heap so it can be returned as a trait object,
-    // and pin the generator to a particular spot in the heap memory
+    // and pin the generator to a particular spot in the heap memory.
     // The signature of rc::Generator resume is:
     // fn resume(self: Pin<&mut Self>) -> GeneratorState<Self::Yield, Self::Return>
     Box::pin(generator)
+}
+
+fn clean_content_before_yield(content: &str) -> String {
+    let cleaned_content;
+
+    // Removes last space if there is one
+    if content.len() > 0 && content.ends_with(' ') {
+        cleaned_content = content[..content.len() - 1].to_string();
+    } else {
+        cleaned_content = content.to_string();
+    }
+
+    cleaned_content
 }
 
 #[cfg(test)]
@@ -227,6 +262,7 @@ mod tests {
     use speculate::speculate;
 
     use super::*;
+    use genawaiter::GeneratorState;
     use std::io::{BufRead, BufReader, Read};
 
     speculate! {
@@ -291,6 +327,22 @@ mod tests {
                         };
                         assert_eq!(extracted_content, "Test <partOfContent < partOfContentToo <ok");
                     }
+
+                    describe "and the opening < char is followed by a long string" {
+                        it "it should extract the content correctly in 1 yield" {
+                            let too_many_words = "a ".repeat(37).trim_end().to_string();
+                            let expected_content = format!("It is <{too_many_words}");
+                            let content = format!("<body>{expected_content}</body>");
+
+                            let buf_reader = BufReader::new(content.as_bytes());
+                            let mut generator = extract_content_generator(buf_reader, None);
+                            let extracted_content = match generator.as_mut().resume() {
+                                GeneratorState::Yielded(content) => content,
+                                _ => panic!("Unexpected generator state"),
+                            };
+                            assert_eq!(extracted_content, expected_content);
+                        }
+                    }
                 }
 
 
@@ -343,9 +395,24 @@ mod tests {
                     }
                 }
 
-                // TODO: here next time:
-                // - test with an example with more yield
-                // - implement and test watchdog on size of the current possible html element
+                describe "On a more complex and correct EPUB content with: (x - 1) * nb_words_per_yield < number of words < x * nb_words_per_yield" {
+                    it "it should extract the content correctly in x yields" {
+                        let expected_yielded_contents = vec!["It is nice to finally meet you.", "Would you like some coffee? I love", "coffee. I drink it every morning.", "!!!!!!!!", "Could you please pass me the sugar?"];
+                        let expected_nb_yields = expected_yielded_contents.len();
+                        let content = format!("<html><head><title>Test</title></head><body><p>{}</p></body></html>", expected_yielded_contents.join(" "));
+
+                        let buf_reader = BufReader::new(content.as_bytes());
+                        let mut generator = extract_content_generator(buf_reader, Some(8));
+
+                        for i in 0..expected_nb_yields {
+                            let yielded_extracted_content = match generator.as_mut().resume() {
+                                GeneratorState::Yielded(content) => content,
+                                _ => panic!("Unexpected generator state"),
+                            };
+                            assert_eq!(yielded_extracted_content, expected_yielded_contents[i]);
+                        }
+                    }
+                }
             }
         }
     }
