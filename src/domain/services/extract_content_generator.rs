@@ -258,7 +258,7 @@ mod tests {
     speculate! {
         describe "extract_content_generator" {
             describe "On an empty EPUB content" {
-                it "it should extract an empty content" {
+                it "it should extract an empty content, and complete" {
                     let content = "";
                     let buf_reader = BufReader::new(content.as_bytes());
                     let mut generator = extract_content_generator(buf_reader, None);
@@ -267,12 +267,19 @@ mod tests {
                         _ => panic!("Unexpected generator state"),
                     };
                     assert_eq!(extracted_content, "");
+
+                    // Completes
+                    let extracted_result = match generator.as_mut().resume() {
+                        GeneratorState::Complete(result) => result,
+                        _ => panic!("Unexpected generator state"),
+                    };
+                    assert_eq!(extracted_result, Ok(()));
                 }
             }
 
             describe "When the number of words in the EPUB content is < to nb_words_per_yield (only 1 yield)" {
                 describe "On a simple and correct EPUB content" {
-                    it "it should extract the content correctly in 1 yield" {
+                    it "it should extract the content correctly in 1 yield, and complete" {
                         let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
                         let buf_reader = BufReader::new(content.as_bytes());
                         let mut generator = extract_content_generator(buf_reader, None);
@@ -281,6 +288,13 @@ mod tests {
                             _ => panic!("Unexpected generator state"),
                         };
                         assert_eq!(extracted_content, "Test");
+
+                        // Completes
+                        let extracted_result = match generator.as_mut().resume() {
+                            GeneratorState::Complete(result) => result,
+                            _ => panic!("Unexpected generator state"),
+                        };
+                        assert_eq!(extracted_result, Ok(()));
                     }
                 }
 
