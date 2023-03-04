@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader},
     pin::Pin,
 };
 
@@ -56,16 +56,6 @@ const LIMIT_NB_WORDS_IN_HTML_ELEMENT: usize = 30;
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
-///
-/// # Examples
-/// ```
-/// use epub::domain::extract_content::extract_content;
-///
-/// let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-/// let extracted_content = extract_content(content);
-/// assert_eq!(extracted_content, "Test");
-/// ```
-//
 pub fn extract_content_generator<'box_lt, ContentToReadType>(
     buf_reader: BufReader<ContentToReadType>,
     nb_words_per_yield: Option<usize>,
@@ -263,7 +253,7 @@ mod tests {
 
     use super::*;
     use genawaiter::GeneratorState;
-    use std::io::{BufRead, BufReader, Read};
+    use std::io::{BufRead, BufReader};
 
     speculate! {
         describe "extract_content_generator" {

@@ -24,15 +24,6 @@ const HTML_ELEMENTS_NEEDING_A_SPACE: [&str; 11] = [
 ///
 /// # Returns
 /// A string containing the content of an epub file, without the HTML elements
-///
-/// # Examples
-/// ```
-/// use epub::domain::extract_content::extract_content;
-///
-/// let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-/// let extracted_content = extract_content(content);
-/// assert_eq!(extracted_content, "Test");
-/// ```
 pub fn extract_content(epub_content: &str) -> String {
     // let mut current_html_elements = std::collections::HashMap::<String, u32>::new();
     let mut extracted_content = String::new();
