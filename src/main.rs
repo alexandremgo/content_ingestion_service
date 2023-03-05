@@ -6,7 +6,7 @@ use crate::domain::services::extract_content::extract_content;
 fn main() {
     println!("Hello, world!");
 
-    let doc = EpubDoc::new("test.epub");
+    let doc = EpubDoc::new("src/tests/minimal_sample.epub");
     assert!(doc.is_ok());
     let mut doc = doc.unwrap();
 
