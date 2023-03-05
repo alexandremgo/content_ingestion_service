@@ -4,7 +4,7 @@ use std::{fs::File, io::BufReader};
 use crate::domain::entities::source::SourceChar;
 use crate::ports::source_buffer_port::{NextError, SourceBufferPort};
 
-struct EpubSourceBuffer {
+pub struct EpubSourceBuffer {
     source: EpubDoc<BufReader<File>>,
     current_content_chars: Vec<char>,
     current_content_chars_index: usize,
@@ -29,7 +29,7 @@ pub enum NextContentError {
 }
 
 impl EpubSourceBuffer {
-    fn try_new<'content_lt>(source_file_path: String) -> Result<Self, TryNewError> {
+    pub fn try_new<'content_lt>(source_file_path: String) -> Result<Self, TryNewError> {
         let source = EpubDoc::new(source_file_path);
         let mut source = match source {
             Ok(source) => source,
