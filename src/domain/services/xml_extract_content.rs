@@ -7,6 +7,8 @@ use std::{
 
 const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 
+const UNWANTED_CHARS: [char; 1] = ['\n'];
+
 /// BufReader provides buffering capabilities: tt reads data from an underlying reader in larger chunks to reduce
 /// the number of read calls made to the underlying reader, which can improve performance.
 pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
@@ -22,6 +24,7 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
     let mut inside_body = 0;
     let mut buf: Vec<u8> = Vec::new();
     let mut current_extracted_content = String::new();
+    let mut previous_char_was_space = false;
 
     let generator = gen!({
         // The `Reader` does not implement `Iterator` because it outputs borrowed data (`Cow`s)
@@ -47,8 +50,27 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
                     if inside_body > 0 {
                         for element in e.iter() {
                             // Works for utf-8. Need to check for other encoding.
-                            current_extracted_content.push(char::from(element.to_owned()));
+                            let current_char = char::from(element.to_owned());
 
+                            // Trims any unwanted chars
+                            if UNWANTED_CHARS.contains(&current_char) {
+                                continue;
+                            }
+
+                            // Trims unnecessary spaces
+                            if current_char == ' ' {
+                                if previous_char_was_space || current_extracted_content.len() == 0 {
+                                    continue;
+                                } else {
+                                    previous_char_was_space = true;
+                                }
+                            } else {
+                                previous_char_was_space = false;
+                            }
+
+                            current_extracted_content.push(current_char);
+
+                            // TODO: count number of words, not number of chars ...
                             if current_extracted_content.len() >= nb_words_per_yield {
                                 // let current_extracted_content = String::from_utf8(current_u8_document.to_owned()).unwrap();
                                 println!("🧠 current document: {:?}", current_extracted_content);
@@ -85,50 +107,116 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
     Box::pin(generator)
 }
 
-#[cfg(test)]
-mod tests {
-    use genawaiter::GeneratorState;
-    use super::*;
+use demonstrate::demonstrate;
 
-    /// When the input is empty
-    #[test]
-    fn when_the_input_is_empty_it_should_extract_an_empty_content_and_complete() {
-        let content = "";
-        let buf_reader = BufReader::new(content.as_bytes());
-        let mut generator = xml_extract_content(buf_reader, None);
-        let extracted_content = match generator.as_mut().resume() {
-            GeneratorState::Yielded(content) => content,
-            _ => panic!("Unexpected generator state"),
-        };
-        assert_eq!(extracted_content, "");
+demonstrate! {
+    describe "xml_extract_content" {
+      use genawaiter::GeneratorState;
+      use super::*;
 
-        // Completes
-        let extracted_result = match generator.as_mut().resume() {
-            GeneratorState::Complete(result) => result,
-            _ => panic!("Unexpected generator state"),
-        };
-        assert_eq!(extracted_result, Ok(()));
+    describe "When the input is empty" {
+        it "should extract an empty content and complete" {
+            let content = "";
+            let buf_reader = BufReader::new(content.as_bytes());
+            let mut generator = xml_extract_content(buf_reader, None);
+            let extracted_content = match generator.as_mut().resume() {
+                GeneratorState::Yielded(content) => content,
+                _ => panic!("Unexpected generator state"),
+            };
+            assert_eq!(extracted_content, "");
+
+            // Completes
+            let extracted_result = match generator.as_mut().resume() {
+                GeneratorState::Complete(result) => result,
+                _ => panic!("Unexpected generator state"),
+            };
+            assert_eq!(extracted_result, Ok(()));
+        }
     }
 
-    /// When the input is correctly formatted
-    #[test]
-    fn when_input_len_inf_nb_words_per_yield_it_should_yield_once() {
-        let content = "<html><head><title>Test Title</title></head><body><p>Test in Body</p><p>Another text <a>inside link</a></p></body></html>";
-        let buf_reader = BufReader::new(content.as_bytes());
+    describe "When the number of words in the EPUB content is < to nb_words_per_yield (only 1 yield)" {
+        describe "On a simple and correct EPUB content" {
+            it "it should extract the content correctly in 1 yield, and complete" {
+                let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
+                let buf_reader = BufReader::new(content.as_bytes());
+                let mut generator = xml_extract_content(buf_reader, None);
+                let extracted_content = match generator.as_mut().resume() {
+                    GeneratorState::Yielded(content) => content,
+                    _ => panic!("Unexpected generator state"),
+                };
+                assert_eq!(extracted_content, "Test");
 
-        let mut generator = xml_extract_content(buf_reader, Some(100));
+                // Completes
+                let extracted_result = match generator.as_mut().resume() {
+                    GeneratorState::Complete(result) => result,
+                    _ => panic!("Unexpected generator state"),
+                };
+                assert_eq!(extracted_result, Ok(()));
+            }
+        }
 
-        let extracted_content = match generator.as_mut().resume() {
-            GeneratorState::Yielded(content) => content,
-            _ => panic!("Unexpected generator state"),
-        };
-        assert_eq!(extracted_content, "Test in BodyAnother text inside link");
+        describe "On a multiline, with spaces, correct EPUB content" {
+            it "it should extract the content correctly in 1 yield" {
+                let content = "\
+<html>
+<head><title>Test</title></head>
+<body>
+    <p>Test</p>
+</body>
+</html>";
+                let buf_reader = BufReader::new(content.as_bytes());
 
-        // Completes
-        let extracted_result = match generator.as_mut().resume() {
-            GeneratorState::Complete(result) => result,
-            _ => panic!("Unexpected generator state"),
-        };
-        assert_eq!(extracted_result, Ok(()));
+                let mut generator = xml_extract_content(buf_reader, None);
+                let extracted_content = match generator.as_mut().resume() {
+                    GeneratorState::Yielded(content) => content,
+                    _ => panic!("Unexpected generator state"),
+                };
+                assert_eq!(extracted_content, "Test");
+            }
+        }
+
+        // TODO: is it possible to convert encoded '&lt;' into '<' ?
+        describe "On a content with an XML element not representing an actual XML element" {
+            it "it should extract the content correctly in 1 yield" {
+                // Pay attention to the double spaces
+                let content = "<body><p>Test &lt;ok&gt;</p></body>";
+                let buf_reader = BufReader::new(content.as_bytes());
+                let mut generator = xml_extract_content(buf_reader, None);
+                let extracted_content = match generator.as_mut().resume() {
+                    GeneratorState::Yielded(content) => content,
+                    _ => panic!("Unexpected generator state"),
+                };
+                assert_eq!(extracted_content, "Test &lt;ok&gt;");
+            }
+        }
+
+        // TODO: count number of words, not number of chars ...
+        describe "On a more complex and correct EPUB content" {
+            it "it should extract the content correctly in 1 yield" {
+                let file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
+                let file_reader = BufReader::new(file);
+                let mut lines_iter = file_reader.lines();
+                let content = lines_iter.next().unwrap().unwrap();
+                lines_iter.next();
+                let result = lines_iter.next().unwrap().unwrap();
+
+                println!("content simple_1: {}", content);
+                println!("🦀");
+                println!("result simple_1: {}", result);
+
+                let buf_reader = BufReader::new(content.as_bytes());
+
+                let mut generator = xml_extract_content(buf_reader, None);
+                let extracted_content = match generator.as_mut().resume() {
+                    GeneratorState::Yielded(extracted_content) => extracted_content,
+                    _ => panic!("Unexpected generator state"),
+                };
+
+                println!("💙");
+                println!("extracted content simple_1: {}", extracted_content);
+                assert_eq!(extracted_content, result);
+            }
+        }
     }
+  }
 }

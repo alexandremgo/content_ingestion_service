@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+demonstrate = "0.4.5"
 epub = "2.0.0"
 genawaiter = "0.99.1"
 quick-xml = "0.28.1"
