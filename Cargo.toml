@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 epub = "2.0.0"
 genawaiter = "0.99.1"
+quick-xml = "0.28.1"
 
 [dev-dependencies]
 speculate = "0.1"

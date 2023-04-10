@@ -56,6 +56,12 @@ const LIMIT_NB_WORDS_IN_HTML_ELEMENT: usize = 30;
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
+///
+/// Other possible signature:
+/// pub fn extract_content_generator<'box_lt, BufReaderType: BufRead + 'box_lt>(
+///     buf_reader: BufReaderType,
+///     nb_words_per_yield: Option<usize>,
+/// ) -> Pin<Box<dyn Generator<Yield = String, Return = Result<(), ()>> + 'box_lt>>
 pub fn extract_content_generator<'box_lt, ContentToReadType>(
     buf_reader: BufReader<ContentToReadType>,
     nb_words_per_yield: Option<usize>,
