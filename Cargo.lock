@@ -42,6 +42,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "content_ingestion_service"
+version = "0.1.0"
+dependencies = [
+ "epub",
+ "genawaiter",
+ "serial_test",
+ "speculate",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -74,16 +84,6 @@ dependencies = [
  "thiserror",
  "xml-rs",
  "zip",
-]
-
-[[package]]
-name = "extract_from_epub"
-version = "0.1.0"
-dependencies = [
- "epub",
- "genawaiter",
- "serial_test",
- "speculate",
 ]
 
 [[package]]
