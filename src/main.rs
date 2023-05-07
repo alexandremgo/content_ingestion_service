@@ -4,6 +4,7 @@ use epub::doc::EpubDoc;
 use crate::domain::services::extract_content::extract_content;
 
 fn main() {
+    pretty_env_logger::init();
     println!("Hello, world!");
 
     let doc = EpubDoc::new("src/tests/minimal_sample.epub");
