@@ -1,19 +1,6 @@
-[package]
-name = "content_ingestion_service"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-[dependencies]
-demonstrate = "0.4.5"
-epub = "2.0.0"
-genawaiter = "0.99.1"
-log = "0.4.17"
-pretty_env_logger = "0.4.0"
-quick-xml = "0.28.1"
-
-[dev-dependencies]
-# TODO: to remove for demonstrate ?
-speculate = "0.1"
-serial_test = "*"
-log = "0.4.17"
-pretty_env_logger = "0.4.0"
+members = [
+    "content_ingestion_service",
+    "macros",
+]

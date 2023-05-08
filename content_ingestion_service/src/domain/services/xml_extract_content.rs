@@ -199,6 +199,7 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
 mod test_xml_extract_content {
     use super::*;
     use genawaiter::GeneratorState;
+    use macros::t_describe;
     use std::io::BufReader;
 
     fn before_all() {
@@ -208,6 +209,7 @@ mod test_xml_extract_content {
     // A. When the input is empty
     // it should extract an empty content and complete
     #[test]
+    #[t_describe("ok here 🔥")]
     fn empty_input_it_should_extract_empty_content() {
         before_all();
 
@@ -296,6 +298,10 @@ mod test_xml_extract_content {
     // On a more complex and correct EPUB content
     // it should extract the content correctly in 1 yield
     #[test]
+    #[t_describe(
+        "On a more complex and correct EPUB content",
+        "it should extract the content correctly in 1 yield"
+    )]
     fn complex_content_is_should_extract_in_1_yield() {
         before_all();
 
