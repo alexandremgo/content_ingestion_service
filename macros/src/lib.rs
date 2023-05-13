@@ -67,16 +67,20 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
     let description = description.join("\n");
     println!("Ok {description}");
 
-    // Extracts the name and block of the input function.
+    // Extracts the name, return type and block of the input function from the function signature.
     let fn_name = &item_fn.sig.ident;
     println!("Signature: 🦖 {:?}", fn_name);
-    let fn_block = &item_fn.block;
+    let mut fn_block = item_fn.block.to_owned();
+    let fn_return_type = &item_fn.sig.output;
+    let fn_args = &item_fn.sig.inputs;
+
+    fn_block
+        .stmts
+        .insert(0, syn::parse2(quote! { println!(#description); }).unwrap());
 
     let result = quote! {
-        fn #fn_name() {
-            println!(#description);
+        fn #fn_name(#fn_args) #fn_return_type
             #fn_block
-        }
     };
 
     Ok(result)
