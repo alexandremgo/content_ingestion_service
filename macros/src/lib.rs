@@ -76,7 +76,7 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
         })
         .collect::<Result<Vec<String>, String>>()?;
 
-    let description = description.join("\n");
+    let description = description.join("\n-> ");
 
     let fn_other_macros = &item_fn.attrs;
 
@@ -89,7 +89,7 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
     fn_block.stmts.insert(
         0,
         syn::parse2(quote! {
-            println!(#description);
+            println!("Test: {}", #description);
         })
         .unwrap(),
     );
@@ -102,8 +102,11 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
         .unwrap(),
     );
 
+    // A test function returns a `Result` and the Rust analyzer warns about "unused `Result` that must be used"
+    // on the new generated tested function. `#[allow(unused)]` is needed to avoid this warning.
     // `fn_other_macros` is a Vec that needs to be iterated over using the repetition `#(...)*`
     let result = quote! {
+        #[allow(unused)]
         #(#fn_other_macros)*
         fn #fn_name(#fn_args) #fn_return_type
             #fn_block
@@ -127,9 +130,10 @@ mod test_macro {
         };
 
         let expected_token_stream = quote! {
+            #[allow(unused)]
             fn tested_fn(param1: usize) -> Result<(), ()> {
                 pretty_env_logger::try_init();
-                println!("Test text");
+                println!("Test: {}", "Test text");
                 let result = doing_something(param1);
                 Ok(())
             }
@@ -160,9 +164,10 @@ mod test_macro {
         };
 
         let expected_token_stream = quote! {
+            #[allow(unused)]
             fn tested_fn(param1: usize) -> Result<(), ()> {
                 pretty_env_logger::try_init();
-                println!("Description 1\nDescription 2");
+                println!("Test: {}", "Description 1\n-> Description 2");
                 let result = doing_something(param1);
                 Ok(())
             }
@@ -195,11 +200,12 @@ mod test_macro {
         };
 
         let expected_token_stream = quote! {
+            #[allow(unused)]
             #[test]
             #[another_macro]
             fn tested_fn(param1: usize) -> Result<(), ()> {
                 pretty_env_logger::try_init();
-                println!("Test text");
+                println!("Test: {}", "Test text");
                 let result = doing_something(param1);
                 Ok(())
             }
