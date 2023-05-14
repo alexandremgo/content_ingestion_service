@@ -24,16 +24,20 @@ impl Parse for Args {
     }
 }
 
-// TODO: setup log env
-// TODO: handles if there are other macros:
-// For ex:
-//
-// #[t_describe(
-//     "On a more complex and correct EPUB content",
-//     "it should extract the content correctly in 1 yield"
-// )]
-// #[test]
-// fn test() { ... }
+/// Helper procedural macro to specifies a description for a test and setup log
+///
+/// Prints the test description specifies in the macro.
+/// Setup pretty_env_logger if not yet initialized.
+/// 
+/// Ex usage:
+/// ```
+/// #[t_describe(
+///     "On a more complex and correct EPUB content",
+///     "it should extract the content correctly in 1 yield"
+/// )]
+/// #[test]
+/// fn test() { ... }
+/// ```
 #[proc_macro_attribute]
 pub fn t_describe(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parses the attribute arguments.
@@ -47,6 +51,14 @@ pub fn t_describe(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
+/// `t_describe` implementation using types defined in `proc_macro2`
+/// 
+/// Types from `proc_macro` are entirely specific to procedural macros and 
+/// cannot ever exist in code outside of a procedural macro.
+/// Thus they cannot be unit-tested directly.
+/// 
+/// Meanwhile with types like `TokenStream2` from `proc_macro2`, the function
+/// can be unit-tested below.
 fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<TokenStream2, String> {
     if attr_args.vars.len() < 1 {
         panic!("Describe the test in at least one sentence");
@@ -65,20 +77,34 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
         .collect::<Result<Vec<String>, String>>()?;
 
     let description = description.join("\n");
-    println!("Ok {description}");
+
+    let fn_other_macros = &item_fn.attrs;
 
     // Extracts the name, return type and block of the input function from the function signature.
     let fn_name = &item_fn.sig.ident;
-    println!("Signature: 🦖 {:?}", fn_name);
     let mut fn_block = item_fn.block.to_owned();
     let fn_return_type = &item_fn.sig.output;
     let fn_args = &item_fn.sig.inputs;
 
-    fn_block
-        .stmts
-        .insert(0, syn::parse2(quote! { println!(#description); }).unwrap());
+    fn_block.stmts.insert(
+        0,
+        syn::parse2(quote! {
+            println!(#description);
+        })
+        .unwrap(),
+    );
 
+    fn_block.stmts.insert(
+        0,
+        syn::parse2(quote! {
+            pretty_env_logger::try_init();
+        })
+        .unwrap(),
+    );
+
+    // `fn_other_macros` is a Vec that needs to be iterated over using the repetition `#(...)*`
     let result = quote! {
+        #(#fn_other_macros)*
         fn #fn_name(#fn_args) #fn_return_type
             #fn_block
     };
@@ -92,7 +118,7 @@ mod test_macro {
     use syn::{parse2, ItemFn};
 
     #[test]
-    fn it_should_print_description() {
+    fn on_simple_function_it_should_add_print_description_and_log_setup() {
         let input_token_stream = quote! {
             fn tested_fn(param1: usize) -> Result<(), ()> {
                 let result = doing_something(param1);
@@ -102,6 +128,77 @@ mod test_macro {
 
         let expected_token_stream = quote! {
             fn tested_fn(param1: usize) -> Result<(), ()> {
+                pretty_env_logger::try_init();
+                println!("Test text");
+                let result = doing_something(param1);
+                Ok(())
+            }
+        };
+
+        let input = parse2::<ItemFn>(input_token_stream).unwrap();
+
+        let attr = quote! {
+            "Test text"
+        };
+
+        let attr_args = parse2::<Args>(attr).unwrap();
+
+        let result = t_describe_implementation(&attr_args, &input).unwrap();
+
+        println!("Result: {}", result.to_string());
+
+        assert_eq!(result.to_string(), expected_token_stream.to_string());
+    }
+
+    #[test]
+    fn on_function_with_several_description_it_should_add_print_description_and_log_setup() {
+        let input_token_stream = quote! {
+            fn tested_fn(param1: usize) -> Result<(), ()> {
+                let result = doing_something(param1);
+                Ok(())
+            }
+        };
+
+        let expected_token_stream = quote! {
+            fn tested_fn(param1: usize) -> Result<(), ()> {
+                pretty_env_logger::try_init();
+                println!("Description 1\nDescription 2");
+                let result = doing_something(param1);
+                Ok(())
+            }
+        };
+
+        let input = parse2::<ItemFn>(input_token_stream).unwrap();
+
+        let attr = quote! {
+            "Description 1", "Description 2"
+        };
+
+        let attr_args = parse2::<Args>(attr).unwrap();
+
+        let result = t_describe_implementation(&attr_args, &input).unwrap();
+
+        println!("Result: {}", result.to_string());
+
+        assert_eq!(result.to_string(), expected_token_stream.to_string());
+    }
+
+    #[test]
+    fn on_function_with_a_macro_already_it_should_add_print_description_and_log_setup() {
+        let input_token_stream = quote! {
+            #[test]
+            #[another_macro]
+            fn tested_fn(param1: usize) -> Result<(), ()> {
+                let result = doing_something(param1);
+                Ok(())
+            }
+        };
+
+        let expected_token_stream = quote! {
+            #[test]
+            #[another_macro]
+            fn tested_fn(param1: usize) -> Result<(), ()> {
+                pretty_env_logger::try_init();
                 println!("Test text");
                 let result = doing_something(param1);
                 Ok(())
