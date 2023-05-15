@@ -4,3 +4,6 @@ members = [
     "content_ingestion_service",
     "macros",
 ]
+
+[workspace.dependencies]
+memory_logger = { version = "0.1.1", features = ["blocking"] }

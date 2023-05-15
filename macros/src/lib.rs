@@ -29,6 +29,8 @@ impl Parse for Args {
 /// Prints the test description specifies in the macro.
 /// Setup pretty_env_logger if not yet initialized.
 /// 
+/// TODO: dependency on `memory_logger`
+/// 
 /// Ex usage:
 /// ```
 /// #[t_describe(
@@ -86,21 +88,24 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
     let fn_return_type = &item_fn.sig.output;
     let fn_args = &item_fn.sig.inputs;
 
-    fn_block.stmts.insert(
-        0,
-        syn::parse2(quote! {
-            println!("Test: {}", #description);
-        })
-        .unwrap(),
-    );
+    // fn_block.stmts.insert(
+    //     0,
+    //     syn::parse2(quote! {
+    //         println!("Test: {}", #description);
+    //     })
+    //     .unwrap(),
+    // );
 
-    fn_block.stmts.insert(
-        0,
-        syn::parse2(quote! {
-            pretty_env_logger::try_init();
-        })
-        .unwrap(),
-    );
+    // fn_block.stmts.insert(
+    //     0,
+    //     syn::parse2(quote! {
+    //         pretty_env_logger::try_init();
+    //     })
+    //     .unwrap(),
+    // );
+
+    // TODO: HERE
+    // Is it possible to capture the log ? And print them only on failure ? And not just randomly setting pretty_env_logger ?
 
     // A test function returns a `Result` and the Rust analyzer warns about "unused `Result` that must be used"
     // on the new generated tested function. `#[allow(unused)]` is needed to avoid this warning.
@@ -108,8 +113,18 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
     let result = quote! {
         #[allow(unused)]
         #(#fn_other_macros)*
-        fn #fn_name(#fn_args) #fn_return_type
-            #fn_block
+        fn #fn_name(#fn_args) #fn_return_type {
+            use memory_logger::blocking::MemoryLogger;
+            let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
+
+            fn fn_implementation() #fn_return_type
+                #fn_block
+
+            match std::panic::catch_unwind(|| fn_implementation()) {
+                Ok(_) => println!("\n----------\n✅ Success {}\n----------\n", #description),
+                Err(err) => panic!("\n----------\n🚨 Failure {}\n{}\n----------\n", #description, err.downcast::<String>().unwrap()),
+            }
+        }
     };
 
     Ok(result)

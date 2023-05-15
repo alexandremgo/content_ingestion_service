@@ -61,6 +61,7 @@ dependencies = [
  "genawaiter",
  "log",
  "macros",
+ "memory_logger",
  "pretty_env_logger",
  "quick-xml",
  "serial_test",
@@ -313,6 +314,15 @@ name = "memchr"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
+
+[[package]]
+name = "memory_logger"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9f0b8e8593066a315e864abc201b514ef6b746bd00ae8bc92251a5692a94436"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "miniz_oxide"
