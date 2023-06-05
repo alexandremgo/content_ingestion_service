@@ -59,6 +59,7 @@ dependencies = [
  "demonstrate",
  "epub",
  "genawaiter",
+ "lazy_static",
  "log",
  "macros",
  "memory_logger",
@@ -304,6 +305,7 @@ dependencies = [
 name = "macros"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "proc-macro2 1.0.56",
  "quote 1.0.26",
  "syn 2.0.15",

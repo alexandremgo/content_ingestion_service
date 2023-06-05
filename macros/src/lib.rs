@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
@@ -28,9 +30,9 @@ impl Parse for Args {
 ///
 /// Prints the test description specifies in the macro.
 /// Setup pretty_env_logger if not yet initialized.
-/// 
+///
 /// TODO: dependency on `memory_logger`
-/// 
+///
 /// Ex usage:
 /// ```
 /// #[t_describe(
@@ -54,11 +56,11 @@ pub fn t_describe(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// `t_describe` implementation using types defined in `proc_macro2`
-/// 
-/// Types from `proc_macro` are entirely specific to procedural macros and 
+///
+/// Types from `proc_macro` are entirely specific to procedural macros and
 /// cannot ever exist in code outside of a procedural macro.
 /// Thus they cannot be unit-tested directly.
-/// 
+///
 /// Meanwhile with types like `TokenStream2` from `proc_macro2`, the function
 /// can be unit-tested below.
 fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<TokenStream2, String> {
@@ -106,26 +108,32 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
 
     // TODO: HERE
     // Is it possible to capture the log ? And print them only on failure ? And not just randomly setting pretty_env_logger ?
+    // let my_vec = MY_STATE.lock().unwrap();
+    // println!("{:?}", my_vec);
 
     // A test function returns a `Result` and the Rust analyzer warns about "unused `Result` that must be used"
     // on the new generated tested function. `#[allow(unused)]` is needed to avoid this warning.
     // `fn_other_macros` is a Vec that needs to be iterated over using the repetition `#(...)*`
     let result = quote! {
-        #[allow(unused)]
-        #(#fn_other_macros)*
-        fn #fn_name(#fn_args) #fn_return_type {
-            use memory_logger::blocking::MemoryLogger;
-            let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
+            #[allow(unused)]
+            #(#fn_other_macros)*
+            fn #fn_name(#fn_args) #fn_return_type {
+                // Shared stated which is dropped after all instances using the state go out of scope.
+                lazy_static::lazy_static! {
+                    static ref MY_STATE: Mutex<Vec<String>> = Mutex::new(Vec::new());
+                }
 
-            fn fn_implementation() #fn_return_type
-                #fn_block
+                MY_STATE.lock().unwrap().push(format!("🔥 test: {:?}", "ok"));
 
-            match std::panic::catch_unwind(|| fn_implementation()) {
-                Ok(_) => println!("\n----------\n✅ Success {}\n----------\n", #description),
-                Err(err) => panic!("\n----------\n🚨 Failure {}\n{}\n----------\n", #description, err.downcast::<String>().unwrap()),
+                fn fn_implementation() #fn_return_type
+                    #fn_block
+
+                match std::panic::catch_unwind(|| fn_implementation()) {
+                    Ok(_) => println!("\n----------\n✅ Success {}\n----------\n{:?}\n\n", #description, MY_STATE.lock().unwrap()),
+                    Err(err) => panic!("\n----------\n🚨 Failure {}\n{}\n----------\n{:?}\n\n", #description, err.downcast::<String>().unwrap(), MY_STATE.lock().unwrap()),
+                }
             }
-        }
-    };
+        };
 
     Ok(result)
 }

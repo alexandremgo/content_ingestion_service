@@ -199,17 +199,47 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
 mod test_xml_extract_content {
     use super::*;
     use genawaiter::GeneratorState;
+    use log::{Log, set_boxed_logger};
     use macros::t_describe;
-    use std::io::BufReader;
+    use std::{io::BufReader, sync::Mutex};
+
+    struct CapturingLogger {
+        logs: Mutex<Vec<String>>,
+    }
+
+    impl Log for CapturingLogger {
+        fn enabled(&self, _metadata: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            let log_message = format!("{} - {}", record.level(), record.args());
+            self.logs.lock().unwrap().push(log_message);
+        }
+
+        fn flush(&self) {
+            self.logs.lock().unwrap().clear();
+        }
+    }
 
     #[test]
-    // #[t_describe(
-    //     "When the input is empty",
-    //     "it should extract an empty content and complete"
-    // )]
+    #[t_describe(
+        "When the input is empty",
+        "it should extract an empty content and complete"
+    )]
     fn empty_input_it_should_extract_empty_content() {
-        use memory_logger::blocking::MemoryLogger;
-        let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
+        // Attempt with MemoryLogger
+        // use memory_logger::blocking::MemoryLogger;
+        // let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
+
+        // Attempt with own CapturingLogger 
+        // let capturing_logger = CapturingLogger {
+        //     logs: Mutex::new(Vec::new()),
+        // };
+
+        // // Sets the capture logger as the global logger
+        // log::set_boxed_logger(Box::new(capturing_logger)).unwrap();
+        // log::set_max_level(log::LevelFilter::Debug);
 
         let content = "";
         let buf_reader = BufReader::new(content.as_bytes());
@@ -227,9 +257,10 @@ mod test_xml_extract_content {
         };
         assert_eq!(extracted_result, Ok(()));
 
-        let contents = logger.read();
-        panic!("\n\n📡 Logs: {}\n", contents.to_string());
-        logger.clear();
+        assert_eq!(1, 2);
+        // let contents = logger.read();
+        // panic!("\n\n📡 Logs: {}\n", contents.to_string());
+        // logger.clear();
     }
 
     // TODO: HERE -> try setup version of the memory logger. But it seems to work !
@@ -240,13 +271,47 @@ mod test_xml_extract_content {
     //     "On a simple and correct EPUB content",
     //     "it should extract the content correctly in 1 yield, and complete"
     // )]
-    #[test]
-    fn simple_correct_epub_content_it_should_extract_in_1_yield_and_complete() {
-        use memory_logger::blocking::MemoryLogger;
-        let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
+    // #[test]
+    // fn simple_correct_epub_content_it_should_extract_in_1_yield_and_complete() {
+    //     use memory_logger::blocking::MemoryLogger;
+    //     let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
 
-        let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
+    //     let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
+    //     let buf_reader = BufReader::new(content.as_bytes());
+    //     let mut generator = xml_extract_content(buf_reader, None);
+    //     let extracted_content = match generator.as_mut().resume() {
+    //         GeneratorState::Yielded(content) => content,
+    //         _ => panic!("Unexpected generator state"),
+    //     };
+    //     assert_eq!(extracted_content, "Test");
+
+    //     // Completes
+    //     let extracted_result = match generator.as_mut().resume() {
+    //         GeneratorState::Complete(result) => result,
+    //         _ => panic!("Unexpected generator state"),
+    //     };
+    //     assert_eq!(extracted_result, Ok(()));
+
+    //     let contents = logger.read();
+    //     panic!("\n\n📡 🔥Logs: {}\n", contents.to_string());
+    //     logger.clear();
+    // }
+
+    #[test]
+    #[t_describe(
+        "On a multiline, with spaces, correct EPUB content",
+        "it should extract the content correctly in 1 yield"
+    )]
+    fn multiline_correct_epub_content_it_should_extract_in_1_yield() {
+        let content = "\
+    <html>
+    <head><title>Test</title></head>
+    <body>
+        <p>Test</p>
+    </body>
+    </html>";
         let buf_reader = BufReader::new(content.as_bytes());
+
         let mut generator = xml_extract_content(buf_reader, None);
         let extracted_content = match generator.as_mut().resume() {
             GeneratorState::Yielded(content) => content,
@@ -254,40 +319,8 @@ mod test_xml_extract_content {
         };
         assert_eq!(extracted_content, "Test");
 
-        // Completes
-        let extracted_result = match generator.as_mut().resume() {
-            GeneratorState::Complete(result) => result,
-            _ => panic!("Unexpected generator state"),
-        };
-        assert_eq!(extracted_result, Ok(()));
-
-        let contents = logger.read();
-        panic!("\n\n📡 🔥Logs: {}\n", contents.to_string());
-        logger.clear();
+        assert_eq!(3, 4);
     }
-
-    // #[test]
-    // #[t_describe(
-    //     "On a multiline, with spaces, correct EPUB content",
-    //     "it should extract the content correctly in 1 yield"
-    // )]
-    // fn multiline_correct_epub_content_it_should_extract_in_1_yield() {
-    //     let content = "\
-    // <html>
-    // <head><title>Test</title></head>
-    // <body>
-    //     <p>Test</p>
-    // </body>
-    // </html>";
-    //     let buf_reader = BufReader::new(content.as_bytes());
-
-    //     let mut generator = xml_extract_content(buf_reader, None);
-    //     let extracted_content = match generator.as_mut().resume() {
-    //         GeneratorState::Yielded(content) => content,
-    //         _ => panic!("Unexpected generator state"),
-    //     };
-    //     assert_eq!(extracted_content, "Test");
-    // }
 
     // // TODO: is it possible to convert encoded '&lt;' into '<' ?
     // #[test]
