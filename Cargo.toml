@@ -2,6 +2,7 @@
 
 members = [
     "content_ingestion_service",
+    "content_ingestion_worker",
     "macros",
 ]
 
