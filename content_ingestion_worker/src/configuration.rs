@@ -1,10 +1,13 @@
+use lapin::ConnectionProperties;
 use serde_aux::field_attributes::deserialize_number_from_string;
 
 #[derive(serde::Deserialize, Clone)]
 pub struct Settings {
     pub application: ApplicationSettings,
+    pub rabbitmq: RabbitMQSettings,
 }
 
+// TODO: is it used for our worker ?
 #[derive(serde::Deserialize, Clone)]
 pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
@@ -12,13 +15,36 @@ pub struct ApplicationSettings {
     pub host: String,
 }
 
+#[derive(serde::Deserialize, Clone)]
+pub struct RabbitMQSettings {
+    // pub username: String,
+    // pub password: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub host: String,
+}
+
+impl RabbitMQSettings {
+    pub fn get_uri(&self) -> String {
+        format!("amqp://{}:{}", &self.host, &self.port)
+    }
+
+    pub fn get_connection_properties(&self) -> ConnectionProperties {
+        ConnectionProperties::default()
+            // Use tokio executor and reactor.
+            // At the moment the reactor is only available for unix.
+            .with_executor(tokio_executor_trait::Tokio::current())
+            .with_reactor(tokio_reactor_trait::Tokio)
+    }
+}
+
 /// Extracts app settings from configuration files and env variables
-/// 
+///
 /// `base.yaml` should contain shared settings for all environments.
 /// A specific env file should be created for each environment: `local.yaml` and `production.yaml`
-/// The environment is set with the env var `APP_ENVIRONMENT`. 
+/// The environment is set with the env var `APP_ENVIRONMENT`.
 /// If `APP_ENVIRONMENT` is not set, `local.yaml` is the default.
-/// 
+///
 /// Settings are also taken from environment variables: with a prefix of APP and '__' as separator
 /// For ex: `APP_APPLICATION__PORT=5001 would set `Settings.application.port`
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {

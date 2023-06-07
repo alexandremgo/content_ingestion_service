@@ -1,6 +1,6 @@
 use content_ingestion_worker::{
     helper::error_chain_fmt,
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
+    telemetry::{get_tracing_subscriber, init_tracing_subscriber}, configuration::get_configuration,
 };
 use lapin::{
     message::DeliveryResult,
@@ -57,14 +57,10 @@ async fn main() {
     );
     init_tracing_subscriber(tracing_subscriber);
 
-    let uri = "amqp://localhost:5672";
-    let options = ConnectionProperties::default()
-        // Use tokio executor and reactor.
-        // At the moment the reactor is only available for unix.
-        .with_executor(tokio_executor_trait::Tokio::current())
-        .with_reactor(tokio_reactor_trait::Tokio);
+    // Panics if the configuration can't be read
+    let configuration = get_configuration().expect("Failed to read configuration.");
 
-    let connection = Connection::connect(uri, options).await.unwrap();
+    let connection = Connection::connect(&configuration.rabbitmq.get_uri(), configuration.rabbitmq.get_connection_properties()).await.unwrap();
     let channel = connection.create_channel().await.unwrap();
 
     let _queue = channel
