@@ -1,10 +1,10 @@
 use lapin::{
     message::DeliveryResult,
-    options::{BasicConsumeOptions, QueueDeclareOptions, BasicAckOptions},
+    options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
     types::FieldTable,
-    Connection, Channel,
+    Channel, Connection,
 };
-use tracing::{error, info, Instrument, info_span};
+use tracing::{error, info, info_span, Instrument};
 
 use crate::{
     configuration::{RabbitMQSettings, Settings},
@@ -14,13 +14,17 @@ use crate::{
 /// Holds the newly built RabbitMQ connection and any server/useful properties
 pub struct Application {
     rabbitmq_connection: Connection,
+    rabbitmq_queue_name_prefix: String,
 }
 
 impl Application {
     pub async fn build(configuration: Settings) -> Result<Self, ()> {
         let connection = get_rabbitmq_connection(&configuration.rabbitmq).await;
 
-        Ok(Self { rabbitmq_connection: connection })
+        Ok(Self {
+            rabbitmq_connection: connection,
+            rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix,
+        })
     }
 
     pub async fn create_rabbitmq_channel(&self) -> Channel {
@@ -28,12 +32,15 @@ impl Application {
     }
 
     pub async fn run(&self) -> Result<(), std::io::Error> {
-        // TODO: do i need to create a channel for each queue ?
+        // A channel is a lightweight connection that share a single TCP connection to RabbitMQ
         let channel = self.rabbitmq_connection.create_channel().await.unwrap();
+
+        let queue_name = format!("{}_queue_test", self.rabbitmq_queue_name_prefix);
+        info!("🏗️ Declaring queue: {}", queue_name);
 
         let _queue = channel
             .queue_declare(
-                "queue_test",
+                &queue_name,
                 QueueDeclareOptions::default(),
                 FieldTable::default(),
             )
@@ -102,5 +109,7 @@ impl Application {
 }
 
 async fn get_rabbitmq_connection(config: &RabbitMQSettings) -> Connection {
-    Connection::connect(&config.get_uri(), config.get_connection_properties()).await.unwrap()
+    Connection::connect(&config.get_uri(), config.get_connection_properties())
+        .await
+        .unwrap()
 }

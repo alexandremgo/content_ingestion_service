@@ -4,3 +4,4 @@ application:
 rabbitmq:
   host: 127.0.0.1
   port: 5672
+  queue_name_prefix: prod
