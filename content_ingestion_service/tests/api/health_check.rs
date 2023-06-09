@@ -5,8 +5,6 @@ use crate::helpers::spawn_app;
 async fn health_check_works() {
     let app = spawn_app().await;
 
-    println!("🍕 address: {}", &app.address);
-
     // Performs HTTP requests against our application
     let client = reqwest::Client::new();
 
