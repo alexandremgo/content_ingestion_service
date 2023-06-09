@@ -25,6 +25,8 @@ tracing-log = "0.1.3"
 tracing-subscriber = { version = "0.3.17", features = ["registry", "env-filter"] }
 uuid = { version = "1.3.3", features = ["v4"] }
 once_cell = "1.18.0"
+anyhow = "1.0.71"
+thiserror = "1.0.40"
 
 
 [dependencies.sqlx]

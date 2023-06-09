@@ -212,16 +212,12 @@ pub fn execute(
 }
 
 fn clean_content_before_yield(content: &str) -> String {
-    let cleaned_content;
-
     // Removes last space if there is one
-    if content.len() > 0 && content.ends_with(' ') {
-        cleaned_content = content[..content.len() - 1].to_string();
+    if !content.is_empty() && content.ends_with(' ') {
+        content[..content.len() - 1].to_string()
     } else {
-        cleaned_content = content.to_string();
+        content.to_string()
     }
-
-    cleaned_content
 }
 
 #[cfg(test)]
@@ -244,7 +240,7 @@ mod tests {
 
                 let mut generator = execute(Dependencies { source_buffer: Box::new(source_buffer) }, Request { nb_words_per_yield: Some(100) });
 
-                for i in 0..30 {
+                for _i in 0..30 {
                     let yielded_extracted_content = match generator.as_mut().resume() {
                         GeneratorState::Yielded(content) => content,
                         _ => panic!("Unexpected generator state"),

@@ -240,16 +240,12 @@ where
 }
 
 fn clean_content_before_yield(content: &str) -> String {
-    let cleaned_content;
-
     // Removes last space if there is one
-    if content.len() > 0 && content.ends_with(' ') {
-        cleaned_content = content[..content.len() - 1].to_string();
+    if !content.is_empty() && content.ends_with(' ') {
+        content[..content.len() - 1].to_string()
     } else {
-        cleaned_content = content.to_string();
+        content.to_string()
     }
-
-    cleaned_content
 }
 
 #[cfg(test)]

@@ -61,7 +61,7 @@ pub fn extract_content(epub_content: &str) -> String {
                 if is_inside_body
                     && HTML_ELEMENTS_NEEDING_A_SPACE
                         .contains(&current_possible_html_element.as_str())
-                    && extracted_content.len() > 0
+                    && !extracted_content.is_empty()
                     && !extracted_content.ends_with(' ')
                 {
                     extracted_content.push(' ');
@@ -107,7 +107,7 @@ mod tests {
     use speculate::speculate;
 
     use super::*;
-    use std::io::{BufRead, BufReader, Read};
+    use std::io::{BufRead, BufReader};
 
     speculate! {
         describe "extract_content" {
@@ -121,7 +121,7 @@ mod tests {
 
             describe "On a more complex and correct EPUB content" {
                 it "it should extract the content correctly" {
-                    let mut file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
+                    let file = std::fs::File::open("src/tests/simple_1.txt").unwrap();
                     let file_reader = BufReader::new(file);
                     let mut lines_iter = file_reader.lines();
                     let content = lines_iter.next().unwrap().unwrap();

@@ -1,10 +1,7 @@
 use genawaiter::{rc::gen, yield_, Generator};
 use log::debug;
 use quick_xml::{events::Event, reader::Reader};
-use std::{
-    io::{BufRead, BufReader},
-    pin::Pin,
-};
+use std::{io::BufRead, pin::Pin};
 
 pub const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 
@@ -199,7 +196,7 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
 mod test_xml_extract_content {
     use super::*;
     use genawaiter::GeneratorState;
-    use log::{set_boxed_logger, Log};
+    use log::Log;
     use macros::t_describe;
     use std::{io::BufReader, sync::Mutex};
 

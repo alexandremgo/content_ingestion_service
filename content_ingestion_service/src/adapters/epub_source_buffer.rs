@@ -29,7 +29,7 @@ pub enum NextContentError {
 }
 
 impl EpubSourceBuffer {
-    pub fn try_new<'content_lt>(source_file_path: String) -> Result<Self, TryNewError> {
+    pub fn try_new(source_file_path: String) -> Result<Self, TryNewError> {
         let source = EpubDoc::new(source_file_path);
         let mut source = match source {
             Ok(source) => source,
@@ -53,7 +53,7 @@ impl EpubSourceBuffer {
             }
         };
 
-        let (current_content, cur_mime) = match source.get_current_str() {
+        let (current_content, _cur_mime) = match source.get_current_str() {
             None => {
                 return Err(TryNewError::NoContent(String::from(
                     "No content was found in the EPUB",
@@ -113,10 +113,7 @@ impl SourceBufferPort for EpubSourceBuffer {
                     NextContentError::Ended => Ok(None),
                 },
             },
-            Some(c) => Ok(Some(SourceChar {
-                value: c.clone(),
-                page: 0,
-            })),
+            Some(c) => Ok(Some(SourceChar { value: *c, page: 0 })),
         }
     }
 }

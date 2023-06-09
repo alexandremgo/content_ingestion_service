@@ -1,10 +1,9 @@
 use std::fs::OpenOptions;
+use std::io::BufReader;
 use std::io::Write;
-use std::io::{BufRead, BufReader};
 
 use genawaiter::GeneratorState;
 
-use crate::domain::entities::document::Document;
 use crate::domain::entities::epub_file::EpubFile;
 use crate::domain::services::extract_content_generator::extract_content_generator;
 
@@ -19,7 +18,7 @@ pub struct CreateDocumentsArgs {
     nb_words_per_document: Option<usize>,
 }
 
-pub fn create_documents(args: CreateDocumentsArgs) -> Result<(), ()> {
+pub fn create_documents(args: CreateDocumentsArgs) -> Result<(), anyhow::Error> {
     let CreateDocumentsArgs {
         epub_file,
         nb_words_per_document,
@@ -29,7 +28,7 @@ pub fn create_documents(args: CreateDocumentsArgs) -> Result<(), ()> {
     // TODO: For the actual API: will we save the epub file when receiving it ?
     // For now, no repository for EpubFile. We will just read it from the filesystem
     // TODO: we're opening the EPUB as a file , is this what we want ?
-    let mut file = std::fs::File::open(epub_file.path).unwrap();
+    let file = std::fs::File::open(epub_file.path).unwrap();
 
     let buf_reader = BufReader::new(file);
 
