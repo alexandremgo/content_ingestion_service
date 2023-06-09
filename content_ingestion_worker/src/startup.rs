@@ -31,6 +31,17 @@ impl Application {
         self.rabbitmq_connection.create_channel().await.unwrap()
     }
 
+    /// Runs the application until stopped
+    ///
+    /// This function will block the current thread
+    ///
+    /// self is moved in order for the application not to drop out of scope
+    /// and move into a thread for ex
+    pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
+        self.run().await.unwrap();
+        loop { }
+    }
+
     pub async fn run(&self) -> Result<(), std::io::Error> {
         // A channel is a lightweight connection that share a single TCP connection to RabbitMQ
         let channel = self.rabbitmq_connection.create_channel().await.unwrap();
@@ -49,7 +60,7 @@ impl Application {
 
         let consumer = channel
             .basic_consume(
-                "queue_test",
+                &queue_name,
                 "tag_foo",
                 BasicConsumeOptions::default(),
                 FieldTable::default(),

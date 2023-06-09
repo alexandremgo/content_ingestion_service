@@ -18,9 +18,11 @@ async fn main() {
     // Panics if the configuration can't be read
     let configuration = get_configuration().expect("Failed to read configuration.");
 
+    let queue_name = format!("{}_queue_test", &configuration.rabbitmq.queue_name_prefix);
+
     let app = Application::build(configuration).await.unwrap();
-    let _result = app.run().await;
     let channel = app.create_rabbitmq_channel().await;
+    let _result = app.run().await;
 
     loop {
         let my_data = MyData {
@@ -33,7 +35,7 @@ async fn main() {
         channel
             .basic_publish(
                 "",
-                "queue_test",
+                &queue_name,
                 BasicPublishOptions::default(),
                 &my_data.as_bytes(),
                 BasicProperties::default()
