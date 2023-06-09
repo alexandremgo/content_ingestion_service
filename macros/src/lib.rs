@@ -115,25 +115,25 @@ fn t_describe_implementation(attr_args: &Args, item_fn: &ItemFn) -> Result<Token
     // on the new generated tested function. `#[allow(unused)]` is needed to avoid this warning.
     // `fn_other_macros` is a Vec that needs to be iterated over using the repetition `#(...)*`
     let result = quote! {
-            #[allow(unused)]
-            #(#fn_other_macros)*
-            fn #fn_name(#fn_args) #fn_return_type {
-                // Shared stated which is dropped after all instances using the state go out of scope.
-                lazy_static::lazy_static! {
-                    static ref MY_STATE: Mutex<Vec<String>> = Mutex::new(Vec::new());
-                }
-
-                MY_STATE.lock().unwrap().push(format!("🔥 test: {:?}", "ok"));
-
-                fn fn_implementation() #fn_return_type
-                    #fn_block
-
-                match std::panic::catch_unwind(|| fn_implementation()) {
-                    Ok(_) => println!("\n----------\n✅ Success {}\n----------\n{:?}\n\n", #description, MY_STATE.lock().unwrap()),
-                    Err(err) => panic!("\n----------\n🚨 Failure {}\n{}\n----------\n{:?}\n\n", #description, err.downcast::<String>().unwrap(), MY_STATE.lock().unwrap()),
-                }
+        #[allow(unused)]
+        #(#fn_other_macros)*
+        fn #fn_name(#fn_args) #fn_return_type {
+            // Shared stated which is dropped after all instances using the state go out of scope.
+            lazy_static::lazy_static! {
+                static ref MY_STATE: Mutex<Vec<String>> = Mutex::new(Vec::new());
             }
-        };
+
+            MY_STATE.lock().unwrap().push(format!("🔥 test: {:?}", "ok"));
+
+            fn fn_implementation() #fn_return_type
+                #fn_block
+
+            match std::panic::catch_unwind(|| fn_implementation()) {
+                Ok(_) => println!("\n----------\n✅ Success {}\n----------\n{:?}\n\n", #description, MY_STATE.lock().unwrap()),
+                Err(err) => panic!("\n----------\n🚨 Failure {}\n{}\n----------\n{:?}\n\n", #description, err.downcast::<String>().unwrap(), MY_STATE.lock().unwrap()),
+            }
+        }
+    };
 
     Ok(result)
 }

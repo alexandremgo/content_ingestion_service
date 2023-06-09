@@ -1,2 +1,2 @@
-pub mod helpers;
 pub mod example;
+pub mod helpers;

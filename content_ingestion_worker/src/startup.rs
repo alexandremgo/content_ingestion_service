@@ -39,7 +39,7 @@ impl Application {
     /// and move into a thread for ex
     pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
         self.run().await.unwrap();
-        loop { }
+        loop {}
     }
 
     pub async fn run(&self) -> Result<(), std::io::Error> {

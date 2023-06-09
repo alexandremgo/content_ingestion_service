@@ -1,10 +1,11 @@
-use lapin::{Channel, options::BasicPublishOptions, BasicProperties};
-use uuid::Uuid;
 use content_ingestion_worker::{
     configuration::get_configuration,
+    handlers::example::MyData,
     startup::Application,
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber}, handlers::example::MyData,
+    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
+use lapin::{options::BasicPublishOptions, BasicProperties, Channel};
+use uuid::Uuid;
 
 use once_cell::sync::Lazy;
 
@@ -28,7 +29,7 @@ static TRACING: Lazy<()> = Lazy::new(|| {
 });
 
 /// A test API client
-/// 
+///
 /// A test suite to easily create integration tests
 pub struct TestApp {
     application: Application,
@@ -64,7 +65,7 @@ impl TestApp {
 }
 
 /// Launches the worker/server/RabbitMQ connection as a background task
-/// 
+///
 /// When a tokio runtime is shut down all tasks spawned on it are dropped.
 /// tokio::test spins up a new runtime at the beginning of each test case and they shut down at the end of each test case.
 /// Therefore no need to implement any clean up logic to avoid leaking resources between test runs
@@ -103,4 +104,4 @@ pub async fn spawn_app() -> TestApp {
         // rabbitmq_channel: "totot".to_string(),
         rabbitmq_channel: channel,
     }
-} 
+}

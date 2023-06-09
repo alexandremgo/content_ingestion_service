@@ -1,6 +1,5 @@
-use tracing::info;
 use crate::helper::error_chain_fmt;
-
+use tracing::info;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct MyData {
