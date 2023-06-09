@@ -21,6 +21,17 @@ services:
       - '15672:15672'
     restart: unless-stopped
 
+  postgres:
+    image: postgres
+    restart: always
+    ports:
+      - "${DB_PORT}:5432"
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_MAX_CONNECTIONS=1000
+
 volumes:
   object-storage:
 
