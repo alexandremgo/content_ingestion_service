@@ -6,7 +6,11 @@ use content_ingestion_service::{
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let tracing_subscriber = get_tracing_subscriber("content_ingestion_service".into(), "info".into(), std::io::stdout);
+    let tracing_subscriber = get_tracing_subscriber(
+        "content_ingestion_service".into(),
+        "info".into(),
+        std::io::stdout,
+    );
     init_tracing_subscriber(tracing_subscriber);
 
     // Panics if the configuration can't be read

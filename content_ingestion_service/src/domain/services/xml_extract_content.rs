@@ -199,7 +199,7 @@ pub fn xml_extract_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
 mod test_xml_extract_content {
     use super::*;
     use genawaiter::GeneratorState;
-    use log::{Log, set_boxed_logger};
+    use log::{set_boxed_logger, Log};
     use macros::t_describe;
     use std::{io::BufReader, sync::Mutex};
 
@@ -232,7 +232,7 @@ mod test_xml_extract_content {
         // use memory_logger::blocking::MemoryLogger;
         // let logger = MemoryLogger::setup(log::Level::Debug).unwrap();
 
-        // Attempt with own CapturingLogger 
+        // Attempt with own CapturingLogger
         // let capturing_logger = CapturingLogger {
         //     logs: Mutex::new(Vec::new()),
         // };

@@ -103,17 +103,16 @@ impl SourceBufferPort for EpubSourceBuffer {
     fn next(&mut self) -> Result<Option<SourceChar>, NextError> {
         self.current_content_chars_index += 1;
 
-        match self.current_content_chars.get(self.current_content_chars_index) {
-            None => {
-                match self.next_content() {
-                    Ok(_) => self.next(),
-                    Err(e) => {
-                        match e {
-                            NextContentError::Ended => Ok(None)
-                        }
-                    }
-                }
-            }
+        match self
+            .current_content_chars
+            .get(self.current_content_chars_index)
+        {
+            None => match self.next_content() {
+                Ok(_) => self.next(),
+                Err(e) => match e {
+                    NextContentError::Ended => Ok(None),
+                },
+            },
             Some(c) => Ok(Some(SourceChar {
                 value: c.clone(),
                 page: 0,
@@ -121,7 +120,6 @@ impl SourceBufferPort for EpubSourceBuffer {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

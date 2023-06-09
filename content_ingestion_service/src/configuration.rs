@@ -1,6 +1,9 @@
-use secrecy::{Secret, ExposeSecret};
+use secrecy::{ExposeSecret, Secret};
 use serde_aux::field_attributes::deserialize_number_from_string;
-use sqlx::{postgres::{PgConnectOptions, PgSslMode}, ConnectOptions};
+use sqlx::{
+    postgres::{PgConnectOptions, PgSslMode},
+    ConnectOptions,
+};
 
 #[derive(serde::Deserialize, Clone)]
 pub struct Settings {
@@ -52,12 +55,12 @@ impl DatabaseSettings {
 }
 
 /// Extracts app settings from configuration files and env variables
-/// 
+///
 /// `base.yaml` should contain shared settings for all environments.
 /// A specific env file should be created for each environment: `local.yaml` and `production.yaml`
-/// The environment is set with the env var `APP_ENVIRONMENT`. 
+/// The environment is set with the env var `APP_ENVIRONMENT`.
 /// If `APP_ENVIRONMENT` is not set, `local.yaml` is the default.
-/// 
+///
 /// Settings are also taken from environment variables: with a prefix of APP and '__' as separator
 /// For ex: `APP_APPLICATION__PORT=5001 would set `Settings.application.port`
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {

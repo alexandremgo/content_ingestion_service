@@ -6,5 +6,5 @@ pub enum NextError {
 }
 
 pub trait SourceBufferPort {
-  fn next(&mut self) -> Result<Option<SourceChar>, NextError>;
+    fn next(&mut self) -> Result<Option<SourceChar>, NextError>;
 }

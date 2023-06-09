@@ -1,10 +1,10 @@
-use sqlx::{Connection, Executor, PgConnection, PgPool};
-use uuid::Uuid;
 use content_ingestion_service::{
     configuration::{get_configuration, DatabaseSettings},
     startup::{get_connection_pool, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
+use sqlx::{Connection, Executor, PgConnection, PgPool};
+use uuid::Uuid;
 
 use once_cell::sync::Lazy;
 

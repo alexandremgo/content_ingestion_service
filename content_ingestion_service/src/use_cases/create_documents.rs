@@ -66,14 +66,20 @@ pub fn create_documents(args: CreateDocumentsArgs) -> Result<(), ()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::use_cases::create_documents::{create_documents, CreateDocumentsArgs};
     use crate::domain::entities::epub_file::EpubFile;
+    use crate::use_cases::create_documents::{create_documents, CreateDocumentsArgs};
 
     #[test]
     fn test_working() {
-        let epub_file = EpubFile { book_id: String::from(""), path: String::from("src/tests/accessible_epub_3.epub") };
+        let epub_file = EpubFile {
+            book_id: String::from(""),
+            path: String::from("src/tests/accessible_epub_3.epub"),
+        };
 
-        if let Err(e) = create_documents(CreateDocumentsArgs { epub_file, nb_words_per_document: Some(8) }) {
+        if let Err(e) = create_documents(CreateDocumentsArgs {
+            epub_file,
+            nb_words_per_document: Some(8),
+        }) {
             panic!("Error: {:?}", e);
         }
         assert_eq!(1, 1);

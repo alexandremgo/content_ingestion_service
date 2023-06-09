@@ -1,5 +1,5 @@
 /// A searchable section of a book
-/// 
+///
 /// * section_id is the incremental number representing
 ///   the order of the section in the book
 pub struct Document {
