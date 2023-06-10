@@ -1,6 +1,5 @@
 use crate::helpers::spawn_app;
 
-// Inspect what code is generated with `cargo +nightly expand --test health_check`
 #[tokio::test]
 async fn health_check_works() {
     let app = spawn_app().await;

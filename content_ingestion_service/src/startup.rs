@@ -9,7 +9,7 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
-    routes::health_check,
+    routes::{add_source_files, health_check}
 };
 
 /// Holds the newly built server and its port
@@ -56,6 +56,7 @@ pub fn run(listener: TcpListener, db_pool: PgPool) -> Result<Server, std::io::Er
         App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
+            .route("/add_source_files", web::post().to(add_source_files))
             // .route("/ingest_document", web::post().to(publish_newsletter))
             // Registers the db connection as part of the application state
             // Gets a pointer copy and attach it to the application state
