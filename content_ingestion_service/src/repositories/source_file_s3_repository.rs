@@ -6,9 +6,9 @@ use crate::helper::error_chain_fmt;
 // TODO: create a Repository struct, with credentials, region and other info ?
 
 // Could be a repository port/interface
-fn save_file_in_bucket(bucket_name: String) -> Result<(), ()> {
-    Ok(())
-}
+// fn save_file_in_bucket(_bucket_name: String) -> Result<(), ()> {
+//     Ok(())
+// }
 
 #[derive(thiserror::Error)]
 pub enum S3RepositoryError {
@@ -42,7 +42,7 @@ pub async fn get_or_create_bucket(bucket_name: &str) -> Result<Bucket, S3Reposit
     let config = BucketConfiguration::default();
 
     // Instantiates/gets the bucket if it exists
-    let bucket = Bucket::new(&bucket_name, region, credentials.clone())?.with_path_style();
+    let bucket = Bucket::new(bucket_name, region, credentials.clone())?.with_path_style();
 
     // let (_, code) = bucket.head_object("/").await?;
     // if code == 404 {
@@ -59,7 +59,7 @@ pub async fn get_or_create_bucket(bucket_name: &str) -> Result<Bucket, S3Reposit
         }
 
         info!("Unknown bucket {}, creating it ...", bucket_name);
-        Bucket::create_with_path_style(&bucket_name, bucket.region.clone(), credentials, config)
+        Bucket::create_with_path_style(bucket_name, bucket.region.clone(), credentials, config)
             .await?;
     }
 
