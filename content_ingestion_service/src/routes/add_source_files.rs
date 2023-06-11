@@ -1,5 +1,11 @@
-use actix_multipart::form::{MultipartForm, tempfile::TempFile};
-use actix_web::HttpResponse;
+use crate::{
+    helper::error_chain_fmt, repositories::source_file_s3_repository::get_or_create_bucket,
+};
+use actix_multipart::form::{tempfile::TempFile, MultipartForm};
+use actix_web::http::StatusCode;
+use actix_web::{HttpResponse, ResponseError};
+use anyhow::Context;
+use tracing::info;
 
 #[derive(Debug, MultipartForm)]
 pub struct UploadForm {
@@ -7,35 +13,45 @@ pub struct UploadForm {
     files: Vec<TempFile>,
 }
 
-/// File struct:
-/// An object providing access to an open file on the filesystem.
-///
-/// An instance of a `File` can be read and/or written depending on what options
-/// it was opened with. Files also implement [`Seek`] to alter the logical cursor
-/// that the file contains internally.
-///
-/// Files are automatically closed when they go out of scope.  Errors detected
-/// on closing are ignored by the implementation of `Drop`.  Use the method
-/// [`sync_all`] if these errors must be manually handled.
-pub async fn add_source_files(MultipartForm(form): MultipartForm<UploadForm>) -> HttpResponse {
-    // TODO: real user
-    let user_id = "test_user";
+#[derive(thiserror::Error)]
+pub enum AddSourceFilesError {
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
+}
 
-    for f in form.files {
-        
+impl std::fmt::Debug for AddSourceFilesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl ResponseError for AddSourceFilesError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            AddSourceFilesError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+/// Add source files to the object storage for a user
+#[tracing::instrument(name = "Add source files", skip(form))]
+pub async fn add_source_files(
+    MultipartForm(form): MultipartForm<UploadForm>,
+) -> Result<HttpResponse, AddSourceFilesError> {
+    // TODO: real user
+    let user_id = "test-user2";
+
+    get_or_create_bucket(user_id).await.context(format!(
+        "Failed to create a storage bucket for the user {}",
+        user_id
+    ))?;
+
+    for file in form.files {
+        info!("Adding file: {:?}", file.file_name);
         // let path = format!("./tmp/{}", f.file_name.unwrap());
         // log::info!("saving to {path}");
         // f.file.persist(path).unwrap();
     }
 
-    HttpResponse::Ok().finish()
-}
-
-// Could be a repository port/interface
-fn save_file_in_bucket(bucket_name: String) -> Result<(), ()> {
-    Ok(())
-}
-
-fn check_or_create_bucket(bucket_name: String) -> Result<(), ()> {
-    Ok(())
+    Ok(HttpResponse::Ok().finish())
 }

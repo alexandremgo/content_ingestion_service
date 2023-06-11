@@ -7,3 +7,9 @@ database:
   username: "postgres"
   password: "password"
   database_name: "source_content"
+
+object_storage:
+  host: "127.0.0.1"
+  port: 9000
+  username: "minio"
+  password: "password"

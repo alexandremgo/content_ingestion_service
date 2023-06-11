@@ -9,6 +9,7 @@ use sqlx::{
 pub struct Settings {
     pub application: ApplicationSettings,
     pub database: DatabaseSettings,
+    pub object_storage: ObjectStorageSettings,
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -53,6 +54,16 @@ impl DatabaseSettings {
         options
     }
 }
+
+#[derive(serde::Deserialize, Clone)]
+pub struct ObjectStorageSettings {
+    pub username: String,
+    pub password: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub host: String,
+}
+
 
 /// Extracts app settings from configuration files and env variables
 ///
