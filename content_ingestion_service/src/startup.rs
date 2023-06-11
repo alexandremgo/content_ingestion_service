@@ -9,7 +9,7 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
-    routes::{add_source_files, health_check}
+    routes::{add_source_files, health_check},
 };
 
 /// Holds the newly built server and its port

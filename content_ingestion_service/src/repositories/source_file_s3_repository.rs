@@ -59,13 +59,8 @@ pub async fn get_or_create_bucket(bucket_name: &str) -> Result<Bucket, S3Reposit
         }
 
         info!("Unknown bucket {}, creating it ...", bucket_name);
-        Bucket::create_with_path_style(
-            &bucket_name,
-            bucket.region.clone(),
-            credentials,
-            config,
-        )
-        .await?;
+        Bucket::create_with_path_style(&bucket_name, bucket.region.clone(), credentials, config)
+            .await?;
     }
 
     info!("Bucket {} has been correctly instantiated", bucket_name);

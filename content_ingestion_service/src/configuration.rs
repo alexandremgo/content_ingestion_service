@@ -64,7 +64,6 @@ pub struct ObjectStorageSettings {
     pub host: String,
 }
 
-
 /// Extracts app settings from configuration files and env variables
 ///
 /// `base.yaml` should contain shared settings for all environments.
