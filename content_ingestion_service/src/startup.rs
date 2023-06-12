@@ -9,6 +9,7 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
+    repositories::source_file_s3_repository::S3Repository,
     routes::{add_source_files, health_check},
 };
 
@@ -18,8 +19,14 @@ pub struct Application {
     server: Server,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ApplicationBuildError {
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+}
+
 impl Application {
-    pub async fn build(configuration: Settings) -> Result<Self, std::io::Error> {
+    pub async fn build(configuration: Settings) -> Result<Self, ApplicationBuildError> {
         let connection_pool = get_connection_pool(&configuration.database);
 
         let address = format!(
@@ -28,7 +35,10 @@ impl Application {
         );
         let listener = TcpListener::bind(address)?;
         let port = listener.local_addr().unwrap().port();
-        let server = run(listener, connection_pool)?;
+
+        let s3_repository = S3Repository::new(&configuration.object_storage);
+
+        let server = run(listener, connection_pool, s3_repository)?;
 
         Ok(Self { port, server })
     }
@@ -47,9 +57,16 @@ impl Application {
 ///
 /// TracingLogger middleware: helps collecting telemetry data.
 /// It generates a unique identifier for each incoming request: `request_id`.
-pub fn run(listener: TcpListener, db_pool: PgPool) -> Result<Server, std::io::Error> {
-    // Wraps the connection to a db, and the email client in smart pointers
+pub fn run(
+    listener: TcpListener,
+    db_pool: PgPool,
+    s3_repository: S3Repository,
+) -> Result<Server, std::io::Error> {
+    // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
+
+    // Wraps repositories to register them and access them from handlers
+    let s3_repository = Data::new(s3_repository);
 
     // `move` to capture `connection` from the surrounding environment
     let server = HttpServer::new(move || {
@@ -61,6 +78,7 @@ pub fn run(listener: TcpListener, db_pool: PgPool) -> Result<Server, std::io::Er
             // Registers the db connection as part of the application state
             // Gets a pointer copy and attach it to the application state
             .app_data(db_pool.clone())
+            .app_data(s3_repository.clone())
     })
     .listen(listener)?
     .run();

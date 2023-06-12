@@ -13,3 +13,4 @@ object_storage:
   port: 9000
   username: "minio"
   password: "password"
+  region: "eu-fr-1"

@@ -1,9 +1,7 @@
-use crate::{
-    helper::error_chain_fmt, repositories::source_file_s3_repository::get_or_create_bucket,
-};
+use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
 use actix_web::http::StatusCode;
-use actix_web::{HttpResponse, ResponseError};
+use actix_web::{web, HttpResponse, ResponseError};
 use anyhow::Context;
 use tracing::info;
 
@@ -34,17 +32,21 @@ impl ResponseError for AddSourceFilesError {
 }
 
 /// Add source files to the object storage for a user
-#[tracing::instrument(name = "Add source files", skip(form))]
+#[tracing::instrument(name = "Add source files", skip(form, s3_repository))]
 pub async fn add_source_files(
     MultipartForm(form): MultipartForm<UploadForm>,
+    s3_repository: web::Data<S3Repository>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
     // TODO: real user
     let user_id = "test-user2";
 
-    get_or_create_bucket(user_id).await.context(format!(
-        "Failed to create a storage bucket for the user {}",
-        user_id
-    ))?;
+    s3_repository
+        .get_or_create_bucket(user_id)
+        .await
+        .context(format!(
+            "Failed to create a storage bucket for the user {}",
+            user_id
+        ))?;
 
     for file in form.files {
         info!("Adding file: {:?}", file.file_name);

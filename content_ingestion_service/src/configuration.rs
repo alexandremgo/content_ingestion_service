@@ -62,6 +62,13 @@ pub struct ObjectStorageSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
+    pub region: String,
+}
+
+impl ObjectStorageSettings {
+    pub fn endpoint(&self) -> String {
+        format!("http://{}:{}", self.host, self.port)
+    }
 }
 
 /// Extracts app settings from configuration files and env variables
