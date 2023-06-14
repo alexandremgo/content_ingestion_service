@@ -40,7 +40,7 @@ pub async fn add_source_files(
     // TODO: real user
     let user_id = "test-user2";
 
-    s3_repository
+    let bucket = s3_repository
         .get_or_create_bucket(user_id)
         .await
         .context(format!(
@@ -48,11 +48,33 @@ pub async fn add_source_files(
             user_id
         ))?;
 
-    for file in form.files {
-        info!("Adding file: {:?}", file.file_name);
-        // let path = format!("./tmp/{}", f.file_name.unwrap());
-        // log::info!("saving to {path}");
-        // f.file.persist(path).unwrap();
+    for mut temp_file in form.files {
+        info!("Adding file: {:?} ...", temp_file.file_name);
+        let file_name = temp_file
+            .file_name
+            .clone()
+            .unwrap_or("unknown_file_name".to_string());
+
+        let object_name = s3_repository
+            .save_file_to_bucket(&bucket, temp_file.file.as_file_mut())
+            .await
+            .context(format!(
+                "The file {} could not be uploaded to object storage",
+                file_name
+            ))?;
+
+        info!("Added file: {:?} -> {:?}", temp_file.file_name, object_name);
+
+        // TODO: remove file if problem when saving file/object info
+        // s3_repository
+        //     .remove_file_from_bucket(&bucket, &object_name)
+        //     .await
+        //     .context(format!(
+        //         "The object {} could not be removed from the object storage",
+        //         object_name
+        //     ))?;
+
+        // info!("Deleted object: {:?}", object_name);
     }
 
     Ok(HttpResponse::Ok().finish())
