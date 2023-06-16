@@ -6,7 +6,7 @@ database:
   port: 5432
   username: "postgres"
   password: "password"
-  database_name: "source_content"
+  database_name: "content_ingestion"
 
 object_storage:
   host: "127.0.0.1"

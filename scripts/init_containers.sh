@@ -26,7 +26,7 @@ export DB_USER=${POSTGRES_USER:=postgres}
 # Checks if a custom password has been set, otherwise default to 'password'
 export DB_PASSWORD="${POSTGRES_PASSWORD:=password}"
 # Checks if a custom database name has been set, otherwise default to 'newsletter'
-export DB_NAME="${POSTGRES_DB:=newsletter}"
+export DB_NAME="${POSTGRES_DB:=content_ingestion}"
 # Checks if a custom port has been set, otherwise default to '5432'
 export DB_PORT="${POSTGRES_PORT:=5432}"
 
@@ -41,6 +41,11 @@ export OBJECT_STORAGE_SITE_NAME="${MINIO_SITE_NAME:=par-rack-1}"
 # Allow to skip Docker if a containers are already running
 if [[ -z "${SKIP_DOCKER}" ]]
 then
+  if [[ -n "${REMOVE_PREVIOUS_CONTAINERS}" ]]
+  then
+    docker-compose down
+    >&2 echo "🧼 Containers were removed successfully"
+  fi
 
   if [[ -n "${BUILD_CONTAINERS}" ]]
   then
@@ -48,7 +53,7 @@ then
     >&2 echo "🏗️ Containers were built successfully"
   fi
 
-  docker-compose up
+  docker-compose up -d
   >&2 echo "🚚 Containers are up"
 fi
 
@@ -61,6 +66,7 @@ done
 
 >&2 echo "🎉 Postgres is up and running on port ${DB_PORT}!"
 
+# Necessary to work with sqlx cli and sqlx compile-time verification
 export DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}
 sqlx database create
 

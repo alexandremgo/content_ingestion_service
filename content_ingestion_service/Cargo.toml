@@ -30,6 +30,8 @@ once_cell = "1.18.0"
 anyhow = "1.0.71"
 thiserror = "1.0.40"
 rust-s3 = "0.33.0"
+chrono = "0.4.26"
+typed-builder = "0.14.0"
 
 
 [dependencies.sqlx]

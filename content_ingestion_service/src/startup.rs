@@ -9,7 +9,10 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
-    repositories::source_file_s3_repository::S3Repository,
+    repositories::{
+        source_file_s3_repository::S3Repository,
+        source_meta_postgres_repository::{self, SourceMetaPostgresRepository},
+    },
     routes::{add_source_files, health_check},
 };
 
@@ -37,8 +40,14 @@ impl Application {
         let port = listener.local_addr().unwrap().port();
 
         let s3_repository = S3Repository::new(&configuration.object_storage);
+        let source_meta_repository = SourceMetaPostgresRepository::new();
 
-        let server = run(listener, connection_pool, s3_repository)?;
+        let server = run(
+            listener,
+            connection_pool,
+            s3_repository,
+            source_meta_repository,
+        )?;
 
         Ok(Self { port, server })
     }
@@ -61,12 +70,14 @@ pub fn run(
     listener: TcpListener,
     db_pool: PgPool,
     s3_repository: S3Repository,
+    source_meta_repository: SourceMetaPostgresRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
 
     // Wraps repositories to register them and access them from handlers
     let s3_repository = Data::new(s3_repository);
+    let source_meta_repository = Data::new(source_meta_repository);
 
     // `move` to capture `connection` from the surrounding environment
     let server = HttpServer::new(move || {
@@ -79,6 +90,7 @@ pub fn run(
             // Gets a pointer copy and attach it to the application state
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
+            .app_data(source_meta_repository.clone())
     })
     .listen(listener)?
     .run();

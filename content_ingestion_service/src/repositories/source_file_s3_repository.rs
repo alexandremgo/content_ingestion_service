@@ -116,6 +116,7 @@ impl S3Repository {
         bucket: &Bucket,
         file: &mut std::fs::File,
     ) -> Result<String, S3RepositoryError> {
+        // TODO: get source file extension
         let object_name = uuid::Uuid::new_v4();
 
         let mut buf = Vec::<u8>::new();
