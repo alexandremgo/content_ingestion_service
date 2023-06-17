@@ -3,3 +3,6 @@ application:
 
 database:
   require_ssl: false
+
+object_storage:
+  bucket_name: development-bucket

@@ -3,3 +3,6 @@ application:
 
 database:
   require_ssl: true
+
+object_storage:
+  bucket_name: production-bucket

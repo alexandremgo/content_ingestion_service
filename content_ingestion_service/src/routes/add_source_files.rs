@@ -76,14 +76,6 @@ pub async fn add_source_files(
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
 
-    let bucket = s3_repository
-        .get_or_create_bucket(&user_id.to_string())
-        .await
-        .context(format!(
-            "Failed to create a storage bucket for the user {}",
-            user_id
-        ))?;
-
     let mut response = AddSourceFilesResponse {
         file_status: Vec::new(),
     };
@@ -169,7 +161,7 @@ pub async fn add_source_files(
             .context("Failed to acquire a Postgres connection from the pool")?;
 
         let object_name = s3_repository
-            .save_file_to_bucket(&bucket, temp_file.file.as_file_mut())
+            .save_file(&user_id.to_string(), temp_file.file.as_file_mut())
             .await
             .context(format!(
                 "The file {} could not be uploaded to object storage",

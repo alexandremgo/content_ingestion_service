@@ -5,21 +5,21 @@ use sqlx::{
     ConnectOptions,
 };
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct Settings {
     pub application: ApplicationSettings,
     pub database: DatabaseSettings,
     pub object_storage: ObjectStorageSettings,
 }
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
 }
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: Secret<String>,
@@ -55,7 +55,7 @@ impl DatabaseSettings {
     }
 }
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct ObjectStorageSettings {
     pub username: String,
     pub password: Secret<String>,
@@ -63,6 +63,8 @@ pub struct ObjectStorageSettings {
     pub port: u16,
     pub host: String,
     pub region: String,
+    /// A bucket for each environment
+    pub bucket_name: String,
 }
 
 impl ObjectStorageSettings {
