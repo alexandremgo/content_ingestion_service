@@ -1,9 +1,11 @@
+use chrono::Utc;
 use content_ingestion_service::{
     configuration::{get_configuration, DatabaseSettings},
     startup::{get_connection_pool, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use sqlx::{Connection, Executor, PgConnection, PgPool};
+use tracing::info;
 use uuid::Uuid;
 
 use once_cell::sync::Lazy;
@@ -60,7 +62,7 @@ pub async fn spawn_app() -> TestApp {
     let configuration = {
         let mut c = get_configuration().expect("Failed to read configuration.");
         // Uses a different database for each test case
-        c.database.database_name = Uuid::new_v4().to_string();
+        c.database.database_name = format!("test_{}_{}", Utc::now().format("%Y-%m-%d_%H-%M-%S"), Uuid::new_v4().to_string());
         // Uses a random OS port: port 0 is special-cased at the OS level:
         // trying to bind port 0 will trigger an OS scan for an available port which will then be bound to the application.
         c.application.port = 0;
@@ -97,15 +99,19 @@ async fn configure_database(config: &DatabaseSettings) -> PgPool {
         .await
         .expect("Failed to create database.");
 
-    // Migrates database
+    info!("🏗️  Created database: {}", config.database_name);
 
-    // TODO
-    // sqlx::migrate!("./migrations")
-    //     .run(&connection_pool)
-    //     .await
-    //     .expect("Failed to migrate the database");
-
-    PgPool::connect_with(config.with_db())
+    let connection_pool = PgPool::connect_with(config.with_db())
         .await
-        .expect("Failed to connect to Postgres.")
+        .expect("Failed to connect to Postgres.");
+
+    // Migrates database
+    sqlx::migrate!("../migrations")
+        .run(&connection_pool)
+        .await
+        .expect("Failed to migrate the database");
+
+    info!("🏗️  Migration done for database: {} ✅", config.database_name);
+
+    connection_pool
 }
