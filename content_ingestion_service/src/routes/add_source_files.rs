@@ -8,7 +8,7 @@ use actix_multipart::form::{tempfile::TempFile, MultipartForm};
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, ResponseError};
 use anyhow::Context;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tracing::{error, info};
 use uuid::uuid;
@@ -42,23 +42,23 @@ impl ResponseError for AddSourceFilesError {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Success,
     Error,
 }
 
-#[derive(Serialize)]
-struct AddSourceFileStatus {
-    file_name: Option<String>,
-    status: Status,
-    message: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct AddSourceFileStatus {
+    pub file_name: Option<String>,
+    pub status: Status,
+    pub message: Option<String>,
 }
 
-#[derive(Serialize)]
-struct AddSourceFilesResponse {
-    file_status: Vec<AddSourceFileStatus>,
+#[derive(Serialize, Deserialize)]
+pub struct AddSourceFilesResponse {
+    pub file_status: Vec<AddSourceFileStatus>,
 }
 
 /// Add source files to the object storage for a user
@@ -148,10 +148,8 @@ pub async fn add_source_files(
         };
 
         info!(
-            "Saving file {}, of size {} and of type {}",
-            file_name,
-            bytes_size,
-            source_type.to_string(),
+            "Saving file {}, of size {} and of type {:?}",
+            file_name, bytes_size, source_type,
         );
 
         // 2. Storing step

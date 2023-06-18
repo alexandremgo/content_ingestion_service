@@ -1,7 +1,10 @@
 use chrono::Utc;
 use sqlx::{Postgres, Transaction};
 
-use crate::{domain::entities::source_meta::SourceMeta, helper::error_chain_fmt};
+use crate::{
+    domain::entities::source_meta::{SourceMeta, SourceType},
+    helper::error_chain_fmt,
+};
 
 pub struct SourceMetaPostgresRepository {
     // Not needed as a transaction is always used
@@ -27,7 +30,7 @@ impl SourceMetaPostgresRepository {
             source_meta.id,
             source_meta.user_id,
             source_meta.object_store_name,
-            source_meta.source_type.to_string(),
+            source_meta.source_type.to_owned() as SourceType,
             source_meta.initial_name.to_string(),
             Utc::now()
         )
