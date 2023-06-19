@@ -1,25 +1,28 @@
+use lapin::ConnectionProperties;
 use secrecy::{ExposeSecret, Secret};
+use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
 use sqlx::{
     postgres::{PgConnectOptions, PgSslMode},
     ConnectOptions,
 };
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub application: ApplicationSettings,
     pub database: DatabaseSettings,
     pub object_storage: ObjectStorageSettings,
+    pub rabbitmq: RabbitMQSettings,
 }
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
 }
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: Secret<String>,
@@ -55,7 +58,7 @@ impl DatabaseSettings {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ObjectStorageSettings {
     pub username: String,
     pub password: Secret<String>,
@@ -70,6 +73,31 @@ pub struct ObjectStorageSettings {
 impl ObjectStorageSettings {
     pub fn endpoint(&self) -> String {
         format!("http://{}:{}", self.host, self.port)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RabbitMQSettings {
+    // pub username: String,
+    // pub password: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub host: String,
+    /// Useful to create parallel queues during tests for example.
+    pub queue_name_prefix: String,
+}
+
+impl RabbitMQSettings {
+    pub fn get_uri(&self) -> String {
+        format!("amqp://{}:{}", &self.host, &self.port)
+    }
+
+    pub fn get_connection_properties(&self) -> ConnectionProperties {
+        ConnectionProperties::default()
+            // Uses tokio executor and reactor.
+            // At the moment the reactor is only available for unix.
+            .with_executor(tokio_executor_trait::Tokio::current())
+            .with_reactor(tokio_reactor_trait::Tokio)
     }
 }
 

@@ -5,4 +5,7 @@ database:
   require_ssl: false
 
 object_storage:
-  bucket_name: development-bucket
+  bucket_name: local-bucket
+
+rabbitmq:
+  queue_name_prefix: local

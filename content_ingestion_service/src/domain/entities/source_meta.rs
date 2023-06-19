@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
 use std::str::FromStr;
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
@@ -21,7 +20,7 @@ impl FromStr for SourceType {
     }
 }
 
-// TODO: delete
+// TODO: delete (was maybe solution for enum handling and compile time check with sqlx)
 // impl PgHasArrayType for SourceType {
 //     fn array_type_info() -> PgTypeInfo {
 //         PgTypeInfo::with_name("_source_type")

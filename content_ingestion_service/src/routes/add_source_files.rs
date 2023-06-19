@@ -1,12 +1,15 @@
 use std::path::Path;
 use std::str::FromStr;
 
+use crate::domain::entities::content_extract_job::ContentExtractJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
+use crate::repositories::message_rabbitmq_repository::MessageRabbitMQRepository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
 use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
+use actix_web::dev::{ServiceFactory, ServiceRequest};
 use actix_web::http::StatusCode;
-use actix_web::{web, HttpResponse, ResponseError};
+use actix_web::{web, App, HttpResponse, ResponseError};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -61,10 +64,40 @@ pub struct AddSourceFilesResponse {
     pub file_status: Vec<AddSourceFileStatus>,
 }
 
+/// Register the add source files route (adapter ? handler ?) to the http server and the needed RabbitMQ queue
+#[tracing::instrument(name = "Register add source files", skip(server_config))]
+pub fn register_add_source_files(
+    server_config: &mut web::ServiceConfig,
+    rabbitmq_channel: lapin::Channel,
+) {
+    server_config.route("/add_source_files", web::post().to(add_source_files));
+    // Wait ? TODO: we don't need this actually
+    // self.rabbitmq_channel
+    //     .basic_publish(
+    //         "",
+    //         &queue_name,
+    //         BasicPublishOptions::default(),
+    //         &my_data.as_bytes(),
+    //         BasicProperties::default()
+    //             .with_timestamp(current_time_ms)
+    //             .with_message_id(uuid::Uuid::new_v4().to_string().into()),
+    //     )
+    //     .await
+    //     .unwrap()
+    //     .await
+    //     .unwrap();
+}
+
 /// Add source files to the object storage for a user
 #[tracing::instrument(
     name = "Add source files",
-    skip(form, pool, s3_repository, source_meta_repository),
+    skip(
+        form,
+        pool,
+        s3_repository,
+        source_meta_repository,
+        message_rabbitmq_repository
+    ),
     err
 )]
 pub async fn add_source_files(
@@ -72,6 +105,7 @@ pub async fn add_source_files(
     pool: web::Data<PgPool>,
     s3_repository: web::Data<S3Repository>,
     source_meta_repository: web::Data<SourceMetaPostgresRepository>,
+    message_rabbitmq_repository: web::Data<MessageRabbitMQRepository>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -195,6 +229,17 @@ pub async fn add_source_files(
         //         "The object {} could not be removed from the object storage",
         //         object_name
         //     ))?;
+
+        let job = ContentExtractJob {
+            source_meta_id: source_meta.id,
+        };
+        message_rabbitmq_repository
+            .publish_content_extract_job(job)
+            .await
+            .context(format!(
+                "Could not send content extraction job request for the file {}",
+                file_name
+            ))?;
 
         response.file_status.push(AddSourceFileStatus {
             file_name: Some(file_name),

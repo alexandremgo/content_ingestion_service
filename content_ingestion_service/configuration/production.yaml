@@ -5,4 +5,7 @@ database:
   require_ssl: true
 
 object_storage:
-  bucket_name: production-bucket
+  bucket_name: prod-bucket
+
+rabbitmq:
+  queue_name_prefix: prod

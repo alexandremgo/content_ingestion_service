@@ -6,25 +6,33 @@ use actix_web::{
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::net::TcpListener;
+use std::{borrow::BorrowMut, net::TcpListener};
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 use crate::{
-    configuration::{DatabaseSettings, ObjectStorageSettings, Settings},
+    configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
     repositories::{
+        message_rabbitmq_repository::MessageRabbitMQRepository,
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
-    routes::{add_source_files, health_check},
+    routes::{add_source_files::add_source_files, health_check},
 };
 
 /// Holds the newly built server, and some useful properties
 pub struct Application {
+    // Server
     server: Server,
     port: u16,
+
+    // S3
     // Used for integration tests
     s3_bucket: Bucket,
+
+    // RabbitMQ
+    rabbitmq_connection: lapin::Connection,
+    rabbitmq_queue_name_prefix: String,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -35,6 +43,8 @@ pub enum ApplicationBuildError {
     S3Error(#[from] s3::error::S3Error),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
+    #[error(transparent)]
+    RabbitMQError(#[from] lapin::Error),
 }
 
 impl Application {
@@ -51,20 +61,30 @@ impl Application {
 
         let s3_bucket = set_up_s3(&settings.object_storage).await?;
 
+        let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
+
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let source_meta_repository = SourceMetaPostgresRepository::new();
+        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+            rabbitmq_channel,
+            settings.rabbitmq.queue_name_prefix.clone(),
+        );
 
         let server = run(
             listener,
             connection_pool,
             s3_repository,
             source_meta_repository,
+            message_rabbitmq_repository,
         )?;
 
         Ok(Self {
             server,
             port,
             s3_bucket,
+            rabbitmq_connection,
+            rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
         })
     }
 
@@ -91,6 +111,7 @@ pub fn run(
     db_pool: PgPool,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
+    message_rabbitmq_repository: MessageRabbitMQRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
@@ -98,12 +119,14 @@ pub fn run(
     // Wraps repositories to register them and access them from handlers
     let s3_repository = Data::new(s3_repository);
     let source_meta_repository = Data::new(source_meta_repository);
+    let message_rabbitmq_repository = Data::new(message_rabbitmq_repository);
 
     // `move` to capture `connection` from the surrounding environment
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
+            // .configure(|cfg| register_add_source_files(cfg, &rabbitmq_channel))
             .route("/add_source_files", web::post().to(add_source_files))
             // .route("/ingest_document", web::post().to(publish_newsletter))
             // Registers the db connection as part of the application state
@@ -111,6 +134,7 @@ pub fn run(
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
+            .app_data(message_rabbitmq_repository.clone())
     })
     .listen(listener)?
     .run();
@@ -177,4 +201,17 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
         settings.bucket_name
     );
     Ok(bucket)
+}
+
+async fn get_rabbitmq_connection(
+    config: &RabbitMQSettings,
+) -> Result<lapin::Connection, lapin::Error> {
+    lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await
+}
+
+// Not a method/self because we need a channel to run the server, before building the application
+pub async fn create_rabbitmq_channel(
+    connection: &lapin::Connection,
+) -> Result<lapin::Channel, lapin::Error> {
+    connection.create_channel().await
 }

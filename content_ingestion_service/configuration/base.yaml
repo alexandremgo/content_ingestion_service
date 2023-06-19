@@ -14,3 +14,7 @@ object_storage:
   username: "minio"
   password: "password"
   region: "eu-fr-1"
+
+rabbitmq:
+  host: 127.0.0.1
+  port: 5672
