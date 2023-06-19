@@ -6,14 +6,14 @@ use actix_web::{
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{borrow::BorrowMut, net::TcpListener};
+use std::net::TcpListener;
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
     repositories::{
-        message_rabbitmq_repository::MessageRabbitMQRepository,
+        message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
@@ -31,6 +31,7 @@ pub struct Application {
     s3_bucket: Bucket,
 
     // RabbitMQ
+    // TODO: are they needed for integrations tests ? If not to remove
     rabbitmq_connection: lapin::Connection,
     rabbitmq_queue_name_prefix: String,
 }
@@ -45,6 +46,8 @@ pub enum ApplicationBuildError {
     IOError(#[from] std::io::Error),
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
+    #[error(transparent)]
+    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
 }
 
 impl Application {
@@ -66,10 +69,11 @@ impl Application {
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let source_meta_repository = SourceMetaPostgresRepository::new();
-        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+        let message_rabbitmq_repository = MessageRabbitMQRepository::try_new(
             rabbitmq_channel,
             settings.rabbitmq.queue_name_prefix.clone(),
-        );
+        )
+        .await?;
 
         let server = run(
             listener,

@@ -1,5 +1,9 @@
 use chrono::Utc;
-use lapin::{options::BasicPublishOptions, BasicProperties, Channel};
+use lapin::{
+    options::{BasicPublishOptions, QueueDeclareOptions},
+    types::FieldTable,
+    BasicProperties, Channel,
+};
 use tracing::info;
 
 use crate::{domain::entities::content_extract_job::ContentExtractJob, helper::error_chain_fmt};
@@ -11,15 +15,36 @@ pub struct MessageRabbitMQRepository {
     queue_name_prefix: String,
 }
 
+const CONTENT_EXTRACT_JOB_QUEUE: &str = "content_extract_job";
+
 // If we start having several RabbitMQ repository for different domains:
 // - `publish` and other internal methods should be moved to a "core" module
 // - one repository per domain
 impl MessageRabbitMQRepository {
-    pub fn new(channel: Channel, queue_name_prefix: String) -> Self {
-        Self {
+    #[tracing::instrument(name = "Initializing MessageRabbitMQRepository", skip(channel))]
+    pub async fn try_new(
+        channel: Channel,
+        queue_name_prefix: String,
+    ) -> Result<Self, MessageRabbitMQRepositoryError> {
+        let content_extract_job_queue_name =
+            format!("{}_{}", queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE);
+        let _queue = channel
+            .queue_declare(
+                &content_extract_job_queue_name,
+                QueueDeclareOptions::default(),
+                FieldTable::default(),
+            )
+            .await?;
+
+        info!(
+            "Successfully declared queue {}",
+            content_extract_job_queue_name
+        );
+
+        Ok(Self {
             channel,
             queue_name_prefix,
-        }
+        })
     }
 
     /// Internal method to publish a message to a queue
@@ -57,7 +82,7 @@ impl MessageRabbitMQRepository {
             response_first_confirm
         );
 
-        // TODO: getting a NotRequested
+        // TODO: getting a NotRequested - i don't understand what it does 🤷
         let response_second_confirm = response_first_confirm.await?;
         info!(
             "🦖 Published message: response_second_confirm: {:?}",
@@ -75,7 +100,7 @@ impl MessageRabbitMQRepository {
     ) -> Result<(), MessageRabbitMQRepositoryError> {
         let json_job = serde_json::to_string(&job).unwrap();
 
-        self.publish("content_extract_job", json_job.as_bytes())
+        self.publish(CONTENT_EXTRACT_JOB_QUEUE, json_job.as_bytes())
             .await
     }
 }
