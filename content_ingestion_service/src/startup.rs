@@ -32,7 +32,7 @@ pub struct Application {
 
     // RabbitMQ
     // TODO: are they needed for integrations tests ? If not to remove
-    rabbitmq_connection: lapin::Connection,
+    // rabbitmq_connection: lapin::Connection,
     rabbitmq_queue_name_prefix: String,
 }
 
@@ -65,29 +65,31 @@ impl Application {
         let s3_bucket = set_up_s3(&settings.object_storage).await?;
 
         let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
-        let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
+        // let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let source_meta_repository = SourceMetaPostgresRepository::new();
-        let message_rabbitmq_repository = MessageRabbitMQRepository::try_new(
-            rabbitmq_channel,
-            settings.rabbitmq.queue_name_prefix.clone(),
-        )
-        .await?;
+        // FIXME:
+        // let message_rabbitmq_repository = MessageRabbitMQRepository::try_new(
+        //     rabbitmq_channel,
+        //     settings.rabbitmq.queue_name_prefix.clone(),
+        // )
+        // .await?;
 
         let server = run(
             listener,
             connection_pool,
+            rabbitmq_connection,
             s3_repository,
             source_meta_repository,
-            message_rabbitmq_repository,
+            // message_rabbitmq_repository,
         )?;
 
         Ok(Self {
             server,
             port,
             s3_bucket,
-            rabbitmq_connection,
+            // rabbitmq_connection,
             rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
         })
     }
@@ -106,6 +108,19 @@ impl Application {
     }
 }
 
+async fn init_rabbitmq_repository(
+    rabbitmq_connection: Data<lapin::Connection>,
+) -> Result<MessageRabbitMQRepository, String> {
+    let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await.unwrap();
+
+    let message_rabbitmq_repository =
+        MessageRabbitMQRepository::try_new(rabbitmq_channel, "this_is_joke".to_string())
+            .await
+            .unwrap();
+
+    Ok(message_rabbitmq_repository)
+}
+
 /// listener: the consumer binds their own port
 ///
 /// TracingLogger middleware: helps collecting telemetry data.
@@ -113,9 +128,10 @@ impl Application {
 pub fn run(
     listener: TcpListener,
     db_pool: PgPool,
+    rabbitmq_connection: lapin::Connection,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
-    message_rabbitmq_repository: MessageRabbitMQRepository,
+    // message_rabbitmq_repository: MessageRabbitMQRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
@@ -123,13 +139,30 @@ pub fn run(
     // Wraps repositories to register them and access them from handlers
     let s3_repository = Data::new(s3_repository);
     let source_meta_repository = Data::new(source_meta_repository);
-    let message_rabbitmq_repository = Data::new(message_rabbitmq_repository);
+    // FIXME: should we create a channel per thread ?
+    // let message_rabbitmq_repository = Data::new(message_rabbitmq_repository);
+    // Sharing the RabbitMQ connection between each thread
+    // But each thread will use their own channel
+    let rabbitmq_connection = Data::new(rabbitmq_connection);
+
+    let message_rabbitmq_repository_factory = move || {
+        let rabbitmq_connection = rabbitmq_connection.clone();
+
+        async {
+            info!("🦀🦀🦀 data factory called !");
+            // Ok("ok data factory test test".to_string());
+            init_rabbitmq_repository(rabbitmq_connection).await
+        }
+    };
 
     // `move` to capture `connection` from the surrounding environment
     let server = HttpServer::new(move || {
+        info!("🦖 actix-web worker created");
+
         App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
+            // FIXME: This way of registering is not needed anymore ?
             // .configure(|cfg| register_add_source_files(cfg, &rabbitmq_channel))
             .route("/add_source_files", web::post().to(add_source_files))
             // .route("/ingest_document", web::post().to(publish_newsletter))
@@ -138,8 +171,11 @@ pub fn run(
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
-            .app_data(message_rabbitmq_repository.clone())
+            // .app_data(rabbitmq_connection.clone())
+            // .app_data(message_rabbitmq_repository.clone())
+            .data_factory(message_rabbitmq_repository_factory.clone())
     })
+    .workers(5)
     .listen(listener)?
     .run();
 

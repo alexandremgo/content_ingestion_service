@@ -37,6 +37,8 @@ pub struct TestApp {
     pub db_pool: PgPool,
     /// S3 bucket used to assert checks thanks to requests to the S3 API
     pub s3_bucket: Bucket,
+    /// RabbitMQ channel used to assert checks thanks to messages sent to the queue
+    pub rabbitmq_channel: lapin::Channel,
 }
 
 /// A test API client / test suite
@@ -80,6 +82,14 @@ pub async fn spawn_app() -> TestApp {
         // - it's better to avoid creating and deleting buckets aggressively
         c.object_storage.bucket_name = "integration-tests-bucket".to_string();
 
+        // Uses a random queue name prefix to avoid collisions between tests
+        // Max size of queue name = 255 bytes
+        c.rabbitmq.queue_name_prefix = format!(
+            "test_{}_{}",
+            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
+            Uuid::new_v4().to_string()
+        );
+
         c
     };
 
@@ -93,6 +103,7 @@ pub async fn spawn_app() -> TestApp {
     // Gets the port and bucket before spawning the application
     let application_port = application.port();
     let s3_bucket = application.s3_bucket();
+    let rabbitmq_channel = application;
 
     // Launches the application as a background task
     let _ = tokio::spawn(application.run_until_stopped());
