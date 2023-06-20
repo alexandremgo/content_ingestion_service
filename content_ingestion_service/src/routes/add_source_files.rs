@@ -7,9 +7,8 @@ use crate::repositories::message_rabbitmq_repository::MessageRabbitMQRepository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
 use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
-use actix_web::dev::{ServiceFactory, ServiceRequest};
 use actix_web::http::StatusCode;
-use actix_web::{web, App, HttpResponse, ResponseError};
+use actix_web::{web, HttpResponse, ResponseError};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -65,27 +64,13 @@ pub struct AddSourceFilesResponse {
 }
 
 /// Register the add source files route (adapter ? handler ?) to the http server and the needed RabbitMQ queue
+/// FIXME: to remove if not needed
 #[tracing::instrument(name = "Register add source files", skip(server_config))]
 pub fn register_add_source_files(
     server_config: &mut web::ServiceConfig,
     rabbitmq_channel: lapin::Channel,
 ) {
     server_config.route("/add_source_files", web::post().to(add_source_files));
-    // Wait ? TODO: we don't need this actually
-    // self.rabbitmq_channel
-    //     .basic_publish(
-    //         "",
-    //         &queue_name,
-    //         BasicPublishOptions::default(),
-    //         &my_data.as_bytes(),
-    //         BasicProperties::default()
-    //             .with_timestamp(current_time_ms)
-    //             .with_message_id(uuid::Uuid::new_v4().to_string().into()),
-    //     )
-    //     .await
-    //     .unwrap()
-    //     .await
-    //     .unwrap();
 }
 
 /// Add source files to the object storage for a user

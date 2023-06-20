@@ -28,17 +28,19 @@ impl MessageRabbitMQRepository {
     ) -> Result<Self, MessageRabbitMQRepositoryError> {
         let content_extract_job_queue_name =
             format!("{}_{}", queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE);
+
+        let queue_declare_options = QueueDeclareOptions::default();
         let _queue = channel
             .queue_declare(
                 &content_extract_job_queue_name,
-                QueueDeclareOptions::default(),
+                queue_declare_options,
                 FieldTable::default(),
             )
             .await?;
 
         info!(
-            "Successfully declared queue {}",
-            content_extract_job_queue_name
+            "Successfully declared queue {} with properties: {:?}",
+            content_extract_job_queue_name, queue_declare_options
         );
 
         Ok(Self {

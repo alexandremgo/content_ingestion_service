@@ -65,19 +65,15 @@ impl Application {
         let s3_bucket = set_up_s3(&settings.object_storage).await?;
 
         let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
-        // let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
+
+        let rabbitmq_queue_name_prefix = settings.rabbitmq.queue_name_prefix.clone();
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let source_meta_repository = SourceMetaPostgresRepository::new();
-        // FIXME:
-        // let message_rabbitmq_repository = MessageRabbitMQRepository::try_new(
-        //     rabbitmq_channel,
-        //     settings.rabbitmq.queue_name_prefix.clone(),
-        // )
-        // .await?;
 
         let server = run(
             listener,
+            settings,
             connection_pool,
             rabbitmq_connection,
             s3_repository,
@@ -90,7 +86,7 @@ impl Application {
             port,
             s3_bucket,
             // rabbitmq_connection,
-            rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
+            rabbitmq_queue_name_prefix,
         })
     }
 
@@ -108,25 +104,13 @@ impl Application {
     }
 }
 
-async fn init_rabbitmq_repository(
-    rabbitmq_connection: Data<lapin::Connection>,
-) -> Result<MessageRabbitMQRepository, String> {
-    let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await.unwrap();
-
-    let message_rabbitmq_repository =
-        MessageRabbitMQRepository::try_new(rabbitmq_channel, "this_is_joke".to_string())
-            .await
-            .unwrap();
-
-    Ok(message_rabbitmq_repository)
-}
-
 /// listener: the consumer binds their own port
 ///
 /// TracingLogger middleware: helps collecting telemetry data.
 /// It generates a unique identifier for each incoming request: `request_id`.
 pub fn run(
     listener: TcpListener,
+    settings: Settings,
     db_pool: PgPool,
     rabbitmq_connection: lapin::Connection,
     s3_repository: S3Repository,
@@ -139,25 +123,16 @@ pub fn run(
     // Wraps repositories to register them and access them from handlers
     let s3_repository = Data::new(s3_repository);
     let source_meta_repository = Data::new(source_meta_repository);
-    // FIXME: should we create a channel per thread ?
-    // let message_rabbitmq_repository = Data::new(message_rabbitmq_repository);
+
     // Sharing the RabbitMQ connection between each thread
     // But each thread will use their own channel
     let rabbitmq_connection = Data::new(rabbitmq_connection);
 
-    let message_rabbitmq_repository_factory = move || {
-        let rabbitmq_connection = rabbitmq_connection.clone();
-
-        async {
-            info!("🦀🦀🦀 data factory called !");
-            // Ok("ok data factory test test".to_string());
-            init_rabbitmq_repository(rabbitmq_connection).await
-        }
-    };
-
-    // `move` to capture `connection` from the surrounding environment
+    // `move` to capture variables from the surrounding environment
     let server = HttpServer::new(move || {
-        info!("🦖 actix-web worker created");
+        info!("Starting actix-web worker");
+        let rabbitmq_connection = rabbitmq_connection.clone();
+        let rabbitmq_queue_name_prefix = settings.rabbitmq.queue_name_prefix.clone();
 
         App::new()
             .wrap(TracingLogger::default())
@@ -171,9 +146,12 @@ pub fn run(
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
-            // .app_data(rabbitmq_connection.clone())
-            // .app_data(message_rabbitmq_repository.clone())
-            .data_factory(message_rabbitmq_repository_factory.clone())
+            .data_factory(move || {
+                try_build_message_rabbitmq_repository(
+                    rabbitmq_connection.clone(),
+                    rabbitmq_queue_name_prefix.clone(),
+                )
+            })
     })
     .workers(5)
     .listen(listener)?
@@ -254,4 +232,19 @@ pub async fn create_rabbitmq_channel(
     connection: &lapin::Connection,
 ) -> Result<lapin::Channel, lapin::Error> {
     connection.create_channel().await
+}
+
+/// Builds a MessageRabbitMQRepository from inside a thread
+///
+/// Each thread should have their own RabbitMQ channel.
+async fn try_build_message_rabbitmq_repository(
+    rabbitmq_connection: Data<lapin::Connection>,
+    queue_name_prefix: String,
+) -> Result<MessageRabbitMQRepository, ApplicationBuildError> {
+    let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
+
+    let repository =
+        MessageRabbitMQRepository::try_new(rabbitmq_channel, queue_name_prefix).await?;
+
+    Ok(repository)
 }
