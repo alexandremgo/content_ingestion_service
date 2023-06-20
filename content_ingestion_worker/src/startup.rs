@@ -38,6 +38,7 @@ impl Application {
     /// self is moved in order for the application not to drop out of scope
     /// and move into a thread for ex
     pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
+        // Should we use https://docs.rs/lapin/latest/lapin/struct.Connection.html#method.run ?
         self.run().await.unwrap();
         loop {}
     }

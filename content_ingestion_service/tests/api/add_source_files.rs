@@ -1,17 +1,25 @@
-use std::collections::HashMap;
+use futures::lock::Mutex;
+use std::{collections::HashMap, sync::Arc};
 
 use content_ingestion_service::{
     domain::entities::source_meta::SourceType,
-    routes::{AddSourceFilesResponse, Status},
+    routes::{AddSourceFilesResponse, Status}, repositories::message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
+};
+use lapin::{
+    message::DeliveryResult,
+    options::{BasicAckOptions, BasicConsumeOptions},
+    types::FieldTable,
+    Channel,
 };
 use regex::Regex;
 use reqwest::multipart::{Form, Part};
 use tokio_stream::StreamExt;
+use tracing::{error, info, info_span, Instrument};
 use uuid::uuid;
 
 use crate::helpers::spawn_app;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_returns_a_200_for_valid_input_data() {
     // Arranges
     let app = spawn_app().await;
@@ -47,7 +55,7 @@ async fn add_source_files_returns_a_200_for_valid_input_data() {
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_returns_a_400_when_input_data_is_missing() {
     // Arranges
     let app = spawn_app().await;
@@ -67,10 +75,24 @@ async fn add_source_files_returns_a_400_when_input_data_is_missing() {
     assert_eq!(400, response.status().as_u16());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_persists_source_file_and_meta() {
     // Arranges
     let app = spawn_app().await;
+
+    // FIXME: loop until queue
+    tokio::time::sleep(tokio::time::Duration::from_millis(4000)).await;
+
+    let counter = Arc::new(Mutex::new(0 as u32));
+    listen_to_queue(
+        app.rabbitmq_channel,
+        &format!(
+            "{}_{}",
+            app.rabbitmq_queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE
+        ),
+        counter.clone(),
+    )
+    .await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -113,13 +135,31 @@ async fn add_source_files_persists_source_file_and_meta() {
         .unwrap();
 
     assert_eq!(s3_response_data.to_string().unwrap(), file_content);
+
+    // Finally asserts that the job message has been correctly sent
+    let counter = counter.lock().await;
+    assert_eq!(*counter, 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_returns_status_for_each_file(
 ) {
     // Arranges
     let app = spawn_app().await;
+
+    // FIXME: loop until queue
+    tokio::time::sleep(tokio::time::Duration::from_millis(4000)).await;
+
+    let counter = Arc::new(Mutex::new(0 as u32));
+    listen_to_queue(
+        app.rabbitmq_channel,
+        &format!(
+            "{}_{}",
+            app.rabbitmq_queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE
+        ),
+        counter.clone(),
+    )
+    .await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -210,4 +250,49 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     for i in 0..NUMBER_FILES {
         assert!(status_checks[i]);
     }
+
+    // Finally asserts that the job message has been correctly sent
+    let counter = counter.lock().await;
+    assert_eq!(*counter, NUMBER_FILES as u32);
+}
+
+pub async fn listen_to_queue(channel: Channel, queue_name: &str, counter: Arc<Mutex<u32>>) {
+    let consumer = channel
+        .basic_consume(
+            &queue_name,
+            "tag_foo",
+            BasicConsumeOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .unwrap();
+
+    consumer.set_delegate(move |delivery: DeliveryResult| {
+        let counter = Arc::clone(&counter);
+
+        info!("🦖 Received message data: {:?}\n", delivery);
+
+        async move {
+            let mut inner_counter = counter.lock().await;
+            *inner_counter += 1;
+
+            let delivery = match delivery {
+                // Carries the delivery alongside its channel
+                Ok(Some(delivery)) => delivery,
+                // The consumer got canceled
+                Ok(None) => return,
+                // Carries the error and is always followed by Ok(None)
+                Err(error) => {
+                    error!(?error, "Failed to consume queue message");
+                    return;
+                }
+            };
+
+            delivery
+                .ack(BasicAckOptions::default())
+                .await
+                .expect("Failed to ack send_webhook_event message");
+        }
+        .instrument(info_span!("Handling queued message",))
+    });
 }

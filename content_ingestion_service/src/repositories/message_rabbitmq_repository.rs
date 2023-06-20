@@ -15,7 +15,7 @@ pub struct MessageRabbitMQRepository {
     queue_name_prefix: String,
 }
 
-const CONTENT_EXTRACT_JOB_QUEUE: &str = "content_extract_job";
+pub const CONTENT_EXTRACT_JOB_QUEUE: &str = "content_extract_job";
 
 // If we start having several RabbitMQ repository for different domains:
 // - `publish` and other internal methods should be moved to a "core" module

@@ -31,9 +31,9 @@ pub struct Application {
     s3_bucket: Bucket,
 
     // RabbitMQ
-    // TODO: are they needed for integrations tests ? If not to remove
+    // Used for integration tests
     // rabbitmq_connection: lapin::Connection,
-    rabbitmq_queue_name_prefix: String,
+    // rabbitmq_queue_name_prefix: String,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -86,7 +86,7 @@ impl Application {
             port,
             s3_bucket,
             // rabbitmq_connection,
-            rabbitmq_queue_name_prefix,
+            // rabbitmq_queue_name_prefix,
         })
     }
 
@@ -100,6 +100,7 @@ impl Application {
 
     /// This function only returns when the application is stopped
     pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
+        info!("Running server ...");
         self.server.await
     }
 }
@@ -134,7 +135,7 @@ pub fn run(
         let rabbitmq_connection = rabbitmq_connection.clone();
         let rabbitmq_queue_name_prefix = settings.rabbitmq.queue_name_prefix.clone();
 
-        App::new()
+        let app = App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
             // FIXME: This way of registering is not needed anymore ?
@@ -151,9 +152,18 @@ pub fn run(
                     rabbitmq_connection.clone(),
                     rabbitmq_queue_name_prefix.clone(),
                 )
-            })
+            });
+            // .data_factory(move || {
+            //     info!("🥦 Inside the data factory");
+            //     async {
+            //         Ok::<String, String>("okokok".to_string())
+            //     }
+            // });
+
+        info!("App ready ✅");
+        app
     })
-    .workers(5)
+    .workers(1)
     .listen(listener)?
     .run();
 
@@ -161,6 +171,7 @@ pub fn run(
     Ok(server)
 }
 
+// Or should we keep a clone of the pool connection in `Application` ?
 pub fn get_connection_pool(settings: &DatabaseSettings) -> PgPool {
     PgPoolOptions::new()
         .acquire_timeout(std::time::Duration::from_secs(2))
@@ -221,17 +232,23 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
     Ok(bucket)
 }
 
-async fn get_rabbitmq_connection(
+pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
 ) -> Result<lapin::Connection, lapin::Error> {
-    lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await
+    info!("🐬 get_rabbitmq_connection");
+    let connection = lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await;
+    info!("🐬✅ got rabbitmq_connection");
+    connection
 }
 
 // Not a method/self because we need a channel to run the server, before building the application
 pub async fn create_rabbitmq_channel(
     connection: &lapin::Connection,
 ) -> Result<lapin::Channel, lapin::Error> {
-    connection.create_channel().await
+    info!("🦄🏗️ MessageRabbitMQRepository: creating RabbitMQ channel ...");
+    let channel = connection.create_channel().await?;
+    info!("🦄🏗️ MessageRabbitMQRepository: successfully created RabbitMQ channel ✅");
+    Ok(channel)
 }
 
 /// Builds a MessageRabbitMQRepository from inside a thread
@@ -241,10 +258,14 @@ async fn try_build_message_rabbitmq_repository(
     rabbitmq_connection: Data<lapin::Connection>,
     queue_name_prefix: String,
 ) -> Result<MessageRabbitMQRepository, ApplicationBuildError> {
+    info!("🦄🏗️ MessageRabbitMQRepository: building");
     let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
+
+    info!("🦄 MessageRabbitMQRepository: created RabbitMQ channel ✅");
 
     let repository =
         MessageRabbitMQRepository::try_new(rabbitmq_channel, queue_name_prefix).await?;
 
+    info!("🦄 MessageRabbitMQRepository: built ✅");
     Ok(repository)
 }

@@ -218,6 +218,7 @@ pub async fn add_source_files(
         let job = ContentExtractJob {
             source_meta_id: source_meta.id,
         };
+
         message_rabbitmq_repository
             .publish_content_extract_job(job)
             .await
