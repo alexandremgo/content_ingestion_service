@@ -1,5 +1,8 @@
 application:
   host: 127.0.0.1
 
+object_storage:
+  bucket_name: local-bucket
+
 rabbitmq:
   queue_name_prefix: local

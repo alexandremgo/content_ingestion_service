@@ -1,6 +1,13 @@
 application:
   port: 8000
 
+object_storage:
+  host: "127.0.0.1"
+  port: 9000
+  username: "minio"
+  password: "password"
+  region: "eu-fr-1"
+
 rabbitmq:
   host: 127.0.0.1
   port: 5672

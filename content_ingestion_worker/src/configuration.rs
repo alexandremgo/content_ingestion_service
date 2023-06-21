@@ -1,21 +1,42 @@
 use lapin::ConnectionProperties;
+use secrecy::Secret;
+use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub application: ApplicationSettings,
+    pub object_storage: ObjectStorageSettings,
     pub rabbitmq: RabbitMQSettings,
 }
 
 // TODO: is it used for our worker ?
-#[derive(serde::Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
 }
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(Deserialize, Debug, Clone)]
+pub struct ObjectStorageSettings {
+    pub username: String,
+    pub password: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub host: String,
+    pub region: String,
+    /// A bucket for each environment
+    pub bucket_name: String,
+}
+
+impl ObjectStorageSettings {
+    pub fn endpoint(&self) -> String {
+        format!("http://{}:{}", self.host, self.port)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct RabbitMQSettings {
     // pub username: String,
     // pub password: Secret<String>,
