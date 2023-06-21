@@ -760,6 +760,8 @@ dependencies = [
  "config",
  "lapin",
  "once_cell",
+ "rust-s3",
+ "secrecy",
  "serde",
  "serde-aux",
  "serde_json",
@@ -772,6 +774,7 @@ dependencies = [
  "tracing-bunyan-formatter",
  "tracing-log",
  "tracing-subscriber",
+ "typed-builder",
  "uuid",
 ]
 
