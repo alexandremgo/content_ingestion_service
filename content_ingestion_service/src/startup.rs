@@ -29,9 +29,10 @@ pub struct Application {
     // S3
     // Used for integration tests
     s3_bucket: Bucket,
-
     // RabbitMQ
-    // Used for integration tests
+    // Should we keep an instance of the RabbitMQ connection to be able to
+    // re-create a channel if there is an error ? The channel can be closed for different reasons,
+    // for example by passive declare a queue that does not exist.
     // rabbitmq_connection: lapin::Connection,
     // rabbitmq_queue_name_prefix: String,
 }
@@ -51,8 +52,14 @@ pub enum ApplicationBuildError {
 }
 
 impl Application {
+    /// # Parameters
+    /// - nb_workers: number of actix-web workers
+    ///   if `None`, the number of available physical CPUs is used as the worker count.
     #[tracing::instrument(name = "Building application")]
-    pub async fn build(settings: Settings) -> Result<Self, ApplicationBuildError> {
+    pub async fn build(
+        settings: Settings,
+        nb_workers: Option<usize>,
+    ) -> Result<Self, ApplicationBuildError> {
         let connection_pool = get_connection_pool(&settings.database);
 
         let address = format!(
@@ -66,19 +73,17 @@ impl Application {
 
         let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
 
-        let rabbitmq_queue_name_prefix = settings.rabbitmq.queue_name_prefix.clone();
-
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let source_meta_repository = SourceMetaPostgresRepository::new();
 
         let server = run(
             listener,
             settings,
+            nb_workers,
             connection_pool,
             rabbitmq_connection,
             s3_repository,
             source_meta_repository,
-            // message_rabbitmq_repository,
         )?;
 
         Ok(Self {
@@ -109,14 +114,18 @@ impl Application {
 ///
 /// TracingLogger middleware: helps collecting telemetry data.
 /// It generates a unique identifier for each incoming request: `request_id`.
+///
+/// # Parameters
+/// - nb_workers: number of actix-web workers
+///   if `None`, the number of available physical CPUs is used as the worker count.
 pub fn run(
     listener: TcpListener,
     settings: Settings,
+    nb_workers: Option<usize>,
     db_pool: PgPool,
     rabbitmq_connection: lapin::Connection,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
-    // message_rabbitmq_repository: MessageRabbitMQRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
@@ -135,13 +144,12 @@ pub fn run(
         let rabbitmq_connection = rabbitmq_connection.clone();
         let rabbitmq_queue_name_prefix = settings.rabbitmq.queue_name_prefix.clone();
 
-        let app = App::new()
+        App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
             // FIXME: This way of registering is not needed anymore ?
             // .configure(|cfg| register_add_source_files(cfg, &rabbitmq_channel))
             .route("/add_source_files", web::post().to(add_source_files))
-            // .route("/ingest_document", web::post().to(publish_newsletter))
             // Registers the db connection as part of the application state
             // Gets a pointer copy and attach it to the application state
             .app_data(db_pool.clone())
@@ -152,23 +160,16 @@ pub fn run(
                     rabbitmq_connection.clone(),
                     rabbitmq_queue_name_prefix.clone(),
                 )
-            });
-            // .data_factory(move || {
-            //     info!("🥦 Inside the data factory");
-            //     async {
-            //         Ok::<String, String>("okokok".to_string())
-            //     }
-            // });
-
-        info!("App ready ✅");
-        app
+            })
     })
-    .workers(1)
-    .listen(listener)?
-    .run();
+    .listen(listener)?;
+
+    if let Some(nb_workers) = nb_workers {
+        return Ok(server.workers(nb_workers).run());
+    }
 
     // No await
-    Ok(server)
+    Ok(server.run())
 }
 
 // Or should we keep a clone of the pool connection in `Application` ?
@@ -235,20 +236,14 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
 pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
 ) -> Result<lapin::Connection, lapin::Error> {
-    info!("🐬 get_rabbitmq_connection");
-    let connection = lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await;
-    info!("🐬✅ got rabbitmq_connection");
-    connection
+    lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await
 }
 
 // Not a method/self because we need a channel to run the server, before building the application
 pub async fn create_rabbitmq_channel(
     connection: &lapin::Connection,
 ) -> Result<lapin::Channel, lapin::Error> {
-    info!("🦄🏗️ MessageRabbitMQRepository: creating RabbitMQ channel ...");
-    let channel = connection.create_channel().await?;
-    info!("🦄🏗️ MessageRabbitMQRepository: successfully created RabbitMQ channel ✅");
-    Ok(channel)
+    connection.create_channel().await
 }
 
 /// Builds a MessageRabbitMQRepository from inside a thread
@@ -258,14 +253,11 @@ async fn try_build_message_rabbitmq_repository(
     rabbitmq_connection: Data<lapin::Connection>,
     queue_name_prefix: String,
 ) -> Result<MessageRabbitMQRepository, ApplicationBuildError> {
-    info!("🦄🏗️ MessageRabbitMQRepository: building");
+    info!("🏗️  MessageRabbitMQRepository: async building");
     let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
-
-    info!("🦄 MessageRabbitMQRepository: created RabbitMQ channel ✅");
 
     let repository =
         MessageRabbitMQRepository::try_new(rabbitmq_channel, queue_name_prefix).await?;
 
-    info!("🦄 MessageRabbitMQRepository: built ✅");
     Ok(repository)
 }

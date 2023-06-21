@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
     // Panics if the configuration can't be read
     let configuration = get_configuration().expect("Failed to read configuration.");
 
-    let application = match Application::build(configuration).await {
+    let application = match Application::build(configuration, None).await {
         Ok(application) => application,
         Err(error) => panic!("Failed to build application: {:?}", error),
     };

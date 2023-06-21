@@ -3,21 +3,22 @@ use std::{collections::HashMap, sync::Arc};
 
 use content_ingestion_service::{
     domain::entities::source_meta::SourceType,
-    routes::{AddSourceFilesResponse, Status}, repositories::message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
+    repositories::message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
+    routes::{AddSourceFilesResponse, Status},
 };
 use lapin::{
     message::DeliveryResult,
-    options::{BasicAckOptions, BasicConsumeOptions},
+    options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
     types::FieldTable,
-    Channel,
 };
 use regex::Regex;
 use reqwest::multipart::{Form, Part};
+use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
-use tracing::{error, info, info_span, Instrument};
+use tracing::{error, info, info_span, warn, Instrument};
 use uuid::uuid;
 
-use crate::helpers::spawn_app;
+use crate::helpers::{spawn_app, TestApp};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_returns_a_200_for_valid_input_data() {
@@ -78,21 +79,10 @@ async fn add_source_files_returns_a_400_when_input_data_is_missing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_persists_source_file_and_meta() {
     // Arranges
-    let app = spawn_app().await;
-
-    // FIXME: loop until queue
-    tokio::time::sleep(tokio::time::Duration::from_millis(4000)).await;
+    let mut app = spawn_app().await;
 
     let counter = Arc::new(Mutex::new(0 as u32));
-    listen_to_queue(
-        app.rabbitmq_channel,
-        &format!(
-            "{}_{}",
-            app.rabbitmq_queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE
-        ),
-        counter.clone(),
-    )
-    .await;
+    listen_to_queue(&mut app, CONTENT_EXTRACT_JOB_QUEUE, 2000, counter.clone()).await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -145,21 +135,10 @@ async fn add_source_files_persists_source_file_and_meta() {
 async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_returns_status_for_each_file(
 ) {
     // Arranges
-    let app = spawn_app().await;
-
-    // FIXME: loop until queue
-    tokio::time::sleep(tokio::time::Duration::from_millis(4000)).await;
+    let mut app = spawn_app().await;
 
     let counter = Arc::new(Mutex::new(0 as u32));
-    listen_to_queue(
-        app.rabbitmq_channel,
-        &format!(
-            "{}_{}",
-            app.rabbitmq_queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE
-        ),
-        counter.clone(),
-    )
-    .await;
+    listen_to_queue(&mut app, CONTENT_EXTRACT_JOB_QUEUE, 2000, counter.clone()).await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -256,8 +235,77 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     assert_eq!(*counter, NUMBER_FILES as u32);
 }
 
-pub async fn listen_to_queue(channel: Channel, queue_name: &str, counter: Arc<Mutex<u32>>) {
-    let consumer = channel
+/// Consumes a queue and increase a counter each time a message is consumed
+///
+/// The correct declaration of the queue is also checked.
+///
+/// # Panics
+/// Panics if the queue is not declared after `wait_queue_timeout_ms` milliseconds
+///
+/// # Parameters
+/// - `app`: the test app (to use and reset the rabbitmq channel)
+/// - `queue_name`: the name of the queue to consume (the current environment prefix will be added by this function)
+/// - `wait_queue_timeout_ms`: the maximum time to wait for the queue to be declared
+/// - `counter`: the counter to increase each time a message is consumed
+///
+/// TODO: actually check the message
+pub async fn listen_to_queue(
+    app: &mut TestApp,
+    queue_name: &str,
+    wait_queue_timeout_ms: usize,
+    counter: Arc<Mutex<u32>>,
+) {
+    let queue_name = &format!("{}_{}", app.rabbitmq_queue_name_prefix, queue_name);
+
+    // `passive` declaration to check if the queue exists
+    // When `passive` is set, all other method fields except `name` and `no-wait` are ignored
+    // Need a better way (than manually) to keep/set the queue options
+    let queue_declare_options = QueueDeclareOptions {
+        passive: true,
+        durable: false,
+        exclusive: false,
+        auto_delete: false,
+        nowait: false,
+    };
+
+    let mut approximate_retried_time_ms = 0;
+    let retry_sleep_step_ms = 500;
+
+    loop {
+        match app
+            .rabbitmq_channel
+            .queue_declare(&queue_name, queue_declare_options, FieldTable::default())
+            .await
+        {
+            Ok(_) => break,
+            Err(error) => match error {
+                lapin::Error::ProtocolError(_) | lapin::Error::InvalidChannelState(_) => {
+                    warn!(
+                        "RabbitMQ queue error: queue {} does not exist, retrying ...",
+                        queue_name
+                    );
+                    // When the queue does not exist, the channel is closed
+                    app.reset_rabbitmq_channel().await;
+                }
+                _ => {
+                    panic!(
+                        "Unknown error while checking for the RabbitMQ queue {:?}",
+                        queue_name
+                    );
+                }
+            },
+        };
+
+        approximate_retried_time_ms += retry_sleep_step_ms;
+        if approximate_retried_time_ms > wait_queue_timeout_ms {
+            panic!("Timeout: the queue {} has not been declared", queue_name);
+        }
+
+        sleep(Duration::from_millis(retry_sleep_step_ms as u64)).await;
+    }
+
+    let consumer = app
+        .rabbitmq_channel
         .basic_consume(
             &queue_name,
             "tag_foo",
@@ -270,7 +318,7 @@ pub async fn listen_to_queue(channel: Channel, queue_name: &str, counter: Arc<Mu
     consumer.set_delegate(move |delivery: DeliveryResult| {
         let counter = Arc::clone(&counter);
 
-        info!("🦖 Received message data: {:?}\n", delivery);
+        info!("Received message: {:?}\n", delivery);
 
         async move {
             let mut inner_counter = counter.lock().await;

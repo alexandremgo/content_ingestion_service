@@ -1,9 +1,10 @@
-use std::sync::Arc;
-
 use chrono::Utc;
 use content_ingestion_service::{
-    configuration::{get_configuration, DatabaseSettings, RabbitMQSettings},
-    startup::{get_connection_pool, get_rabbitmq_connection, set_up_s3, Application, create_rabbitmq_channel},
+    configuration::{get_configuration, DatabaseSettings},
+    startup::{
+        create_rabbitmq_channel, get_connection_pool, get_rabbitmq_connection,
+        Application,
+    },
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use s3::Bucket;
@@ -40,22 +41,18 @@ pub struct TestApp {
     /// S3 bucket used to assert checks thanks to requests to the S3 API
     pub s3_bucket: Bucket,
     // RabbitMQ channel used to assert checks thanks to messages sent to the queue
+    rabbitmq_connection: lapin::Connection,
     pub rabbitmq_channel: lapin::Channel,
     pub rabbitmq_queue_name_prefix: String,
 }
 
 /// A test API client / test suite
 impl TestApp {
-    // /// Sends a POST request to the "/subscriptions" route
-    // pub async fn post_subscriptions(&self, body: String) -> reqwest::Response {
-    //     reqwest::Client::new()
-    //         .post(&format!("{}/subscriptions", &self.address))
-    //         .header("Content-Type", "application/x-www-form-urlencoded")
-    //         .body(body)
-    //         .send()
-    //         .await
-    //         .expect("Failed to execute request.")
-    // }
+    pub async fn reset_rabbitmq_channel(&mut self) {
+        self.rabbitmq_channel = create_rabbitmq_channel(&self.rabbitmq_connection)
+            .await
+            .unwrap();
+    }
 }
 
 /// Launches the server as a background task
@@ -66,8 +63,6 @@ pub async fn spawn_app() -> TestApp {
     // The first time `initialize` is invoked the code in `TRACING` is executed.
     // All other invocations will instead skip execution.
     Lazy::force(&TRACING);
-
-    // Lazy::
 
     // Randomizes configuration to ensure test isolation
     let configuration = {
@@ -98,29 +93,20 @@ pub async fn spawn_app() -> TestApp {
         c
     };
 
-    // TODO: to remove
-    // // This is called only once for every thread -> only 1 connection
-    // let rabbitmq_connection = Arc::pin(async_once_cell::Lazy::new(async {
-    //     info!("🚨🚨 Getting RabbitMQ connection once for all integrations tests");
-    //     // Handles the connection error inside the lazy call
-    //     get_rabbitmq_connection(&configuration.rabbitmq).await.unwrap()
-    // }));
-    // let rabbitmq_connection = rabbitmq_connection.as_ref().await; //(*rabbitmq_connection.as_ref().await).unwrap();
-    // let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await.unwrap();
-
     // Creates a RabbitMQ connection (and a channel) for each test, but we did not find a way
     // to share the same connection between tests. Anyway, the Application is already recreating a connection.
-    let rabbitmq_connection = get_rabbitmq_connection(&configuration.rabbitmq).await.unwrap();
+    let rabbitmq_connection = get_rabbitmq_connection(&configuration.rabbitmq)
+        .await
+        .unwrap();
     let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await.unwrap();
 
     // Creates and migrates the database
     set_up_database(&configuration.database).await;
 
-    let application = Application::build(configuration.clone())
+    // Only one actix-web worker is needed for integration tests
+    let application = Application::build(configuration.clone(), Some(1))
         .await
         .expect("Failed to build application.");
-
-    info!("🦖✅ Successfully build the application");
 
     // Gets the port and bucket before spawning the application
     let application_port = application.port();
@@ -128,17 +114,15 @@ pub async fn spawn_app() -> TestApp {
 
     // Launches the application as a background task
     let _ = tokio::spawn(application.run_until_stopped());
-    // application.run_until_stopped().await.unwrap();
-
-    info!("🦖✅ Application spawned");
 
     TestApp {
         address: format!("http://127.0.0.1:{}", application_port),
         port: application_port,
         db_pool: get_connection_pool(&configuration.database),
         s3_bucket,
+        rabbitmq_connection,
         rabbitmq_channel,
-        rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix
+        rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix,
     }
 }
 

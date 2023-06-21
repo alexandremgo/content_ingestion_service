@@ -9,7 +9,12 @@ use tracing::info;
 use crate::{domain::entities::content_extract_job::ContentExtractJob, helper::error_chain_fmt};
 
 /// Message broker using RabbitMQ
+///
 /// Repository passed to routes handlers so it could be mocked in the future ?
+///
+/// Questions:
+/// - should we keep an instance of the RabbitMQ connection to be able to re-create
+///   a channel if it is closed ?
 pub struct MessageRabbitMQRepository {
     channel: Channel,
     queue_name_prefix: String,
@@ -79,15 +84,10 @@ impl MessageRabbitMQRepository {
                     .with_message_id(uuid::Uuid::new_v4().to_string().into()),
             )
             .await?;
-        info!(
-            "🐬 Published message: response_first_confirm: {:?}",
-            response_first_confirm
-        );
-
         // TODO: getting a NotRequested - i don't understand what it does 🤷
         let response_second_confirm = response_first_confirm.await?;
         info!(
-            "🦖 Published message: response_second_confirm: {:?}",
+            "Published message response from 2nd confirm: {:?}",
             response_second_confirm
         );
 
