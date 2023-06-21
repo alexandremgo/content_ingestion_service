@@ -6,7 +6,7 @@ use lapin::{
 };
 use tracing::info;
 
-use crate::{domain::entities::content_extract_job::ContentExtractJob, helper::error_chain_fmt};
+use crate::{domain::entities::extract_content_job::ExtractContentJob, helper::error_chain_fmt};
 
 /// Message broker using RabbitMQ
 ///
@@ -98,7 +98,7 @@ impl MessageRabbitMQRepository {
     #[tracing::instrument(name = "Publishing content extract job", skip(self))]
     pub async fn publish_content_extract_job(
         &self,
-        job: ContentExtractJob,
+        job: ExtractContentJob,
     ) -> Result<(), MessageRabbitMQRepositoryError> {
         let json_job = serde_json::to_string(&job).unwrap();
 

@@ -1,10 +1,7 @@
 use chrono::Utc;
 use content_ingestion_service::{
     configuration::{get_configuration, DatabaseSettings},
-    startup::{
-        create_rabbitmq_channel, get_connection_pool, get_rabbitmq_connection,
-        Application,
-    },
+    startup::{create_rabbitmq_channel, get_connection_pool, get_rabbitmq_connection, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use s3::Bucket;

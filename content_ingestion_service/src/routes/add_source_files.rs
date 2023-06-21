@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::domain::entities::content_extract_job::ContentExtractJob;
+use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
 use crate::repositories::message_rabbitmq_repository::MessageRabbitMQRepository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
@@ -177,7 +177,7 @@ pub async fn add_source_files(
             .await
             .context("Failed to acquire a Postgres connection from the pool")?;
 
-        let object_name = s3_repository
+        let (object_name, object_path_name) = s3_repository
             .save_file(&user_id.to_string(), temp_file.file.as_file_mut())
             .await
             .context(format!(
@@ -215,8 +215,10 @@ pub async fn add_source_files(
         //         object_name
         //     ))?;
 
-        let job = ContentExtractJob {
+        let job = ExtractContentJob {
             source_meta_id: source_meta.id,
+            source_type,
+            object_store_path_name: object_path_name,
         };
 
         message_rabbitmq_repository

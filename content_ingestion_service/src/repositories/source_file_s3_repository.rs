@@ -38,24 +38,28 @@ impl S3Repository {
     /// * `folder_path` - The folder where the file will be stored
     ///
     /// # Return
-    /// The name (not the full path) of the file given on the object storage
+    /// A tuple:
+    /// - the name (not the full path) of the file given on the object storage
+    /// - the path + name (full path) of the file given on the object storage
     #[tracing::instrument(name = "Add file from bucket", skip(self))]
     pub async fn save_file(
         &self,
         folder_path: &str,
         file: &mut std::fs::File,
-    ) -> Result<String, S3RepositoryError> {
+    ) -> Result<(String, String), S3RepositoryError> {
         let object_name = uuid::Uuid::new_v4();
-        let object_path = format!("{}/{}", folder_path, object_name);
+        let object_path_name = format!("{}/{}", folder_path, object_name);
 
-        info!("Saving file at {}", object_path);
+        info!("Saving file at {}", object_path_name);
 
         let mut buf = Vec::<u8>::new();
         file.read_to_end(&mut buf)?;
 
-        self.bucket.put_object(object_path, buf.as_slice()).await?;
+        self.bucket
+            .put_object(object_path_name.clone(), buf.as_slice())
+            .await?;
 
-        Ok(object_name.to_string())
+        Ok((object_name.to_string(), object_path_name))
     }
 
     /// Remove a given file from a bucket in the object storage
