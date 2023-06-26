@@ -758,8 +758,10 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "config",
+ "futures",
  "lapin",
  "once_cell",
+ "reqwest",
  "rust-s3",
  "secrecy",
  "serde",
@@ -769,6 +771,7 @@ dependencies = [
  "tokio",
  "tokio-executor-trait",
  "tokio-reactor-trait",
+ "tokio-util",
  "tracing",
  "tracing-actix-web",
  "tracing-bunyan-formatter",

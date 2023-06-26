@@ -1,17 +1,16 @@
+use std::{pin::Pin, sync::Arc};
+
 use crate::{
     configuration::{ObjectStorageSettings, RabbitMQSettings, Settings},
-    handlers::example,
+    handlers::handler_extract_content_job::{self, HandlerExtractContentJobError},
     repositories::source_file_s3_repository::S3Repository,
 };
-use lapin::{
-    message::DeliveryResult,
-    options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
-    types::FieldTable,
-    Channel, Connection,
-};
+use futures::Future;
+use lapin::{Channel, Connection};
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
-use tracing::{error, info, info_span, Instrument};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
 
 /// Holds the newly built RabbitMQ connection and any server/useful properties
 pub struct Application {
@@ -21,29 +20,35 @@ pub struct Application {
     // S3
     // Used for integration tests
     s3_bucket: Bucket,
+
+    s3_repository: Arc<S3Repository>,
 }
 
 impl Application {
-    /// # Parameters
-    /// - nb_workers: number of actix-web workers
-    ///   if `None`, the number of available physical CPUs is used as the worker count.
-    #[tracing::instrument(name = "Building application")]
-    pub async fn build(settings: Settings) -> Result<Self, ApplicationBuildError> {
+    #[tracing::instrument(name = "Building worker application")]
+    pub async fn build(settings: Settings) -> Result<Self, ApplicationError> {
         let s3_bucket = set_up_s3(&settings.object_storage).await?;
 
         let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
+        let s3_repository = Arc::new(s3_repository);
 
-        Ok(Self {
+        let app = Self {
             rabbitmq_connection,
             rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
             s3_bucket,
-        })
+            s3_repository,
+        };
+
+        app.registers_message_handlers().await?;
+
+        Ok(app)
     }
 
-    pub async fn create_rabbitmq_channel(&self) -> Channel {
-        self.rabbitmq_connection.create_channel().await.unwrap()
+    /// A channel is a lightweight connection that share a single TCP connection to RabbitMQ
+    pub async fn create_rabbitmq_channel(&self) -> Result<Channel, lapin::Error> {
+        self.rabbitmq_connection.create_channel().await
     }
 
     /// Runs the application until stopped
@@ -52,84 +57,38 @@ impl Application {
     ///
     /// self is moved in order for the application not to drop out of scope
     /// and move into a thread for ex
-    pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
-        // Should we use https://docs.rs/lapin/latest/lapin/struct.Connection.html#method.run ?
-        self.run().await.unwrap();
-        loop {}
+    pub async fn run_until_stopped(
+        self,
+        cancel_token: CancellationToken,
+    ) -> Result<(), ApplicationError> {
+        info!("📡 running until stopped");
+
+        loop {
+            if cancel_token.is_cancelled() {
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+
+        // Not making it gracefully shutdown
+        // self.rabbitmq_connection.close(200, "").await;
+
+        info!("👋 Bye!");
+        Ok(())
     }
 
-    pub async fn run(&self) -> Result<(), std::io::Error> {
-        // A channel is a lightweight connection that share a single TCP connection to RabbitMQ
-        let channel = self.rabbitmq_connection.create_channel().await.unwrap();
+    /// Registers queue message handlers to start the worker
+    #[tracing::instrument(name = "Preparing to run the worker application", skip(self))]
+    pub async fn registers_message_handlers(&self) -> Result<(), ApplicationError> {
+        let channel = self.create_rabbitmq_channel().await?;
 
-        let queue_name = format!("{}_queue_test", self.rabbitmq_queue_name_prefix);
-        info!("🏗️ Declaring queue: {}", queue_name);
-
-        let _queue = channel
-            .queue_declare(
-                &queue_name,
-                QueueDeclareOptions::default(),
-                FieldTable::default(),
-            )
-            .await
-            .unwrap();
-
-        let consumer = channel
-            .basic_consume(
-                &queue_name,
-                "tag_foo",
-                BasicConsumeOptions::default(),
-                FieldTable::default(),
-            )
-            .await
-            .unwrap();
-
-        // TODO: will need to set this in another way
-        consumer.set_delegate(move |delivery: DeliveryResult| {
-            async move {
-                let delivery = match delivery {
-                    // Carries the delivery alongside its channel
-                    Ok(Some(delivery)) => delivery,
-                    // The consumer got canceled
-                    Ok(None) => return,
-                    // Carries the error and is always followed by Ok(None)
-                    Err(error) => {
-                        error!(?error, "Failed to consume queue message");
-                        return;
-                    }
-                };
-
-                let my_data = match example::MyData::try_parsing(&delivery.data) {
-                    Ok(my_data) => my_data,
-                    Err(error) => {
-                        error!(?error, "Failed to parse queue message data: {}", error);
-                        return;
-                    }
-                };
-
-                info!(
-                    "🦖 Received message properties: {:#?}\n",
-                    delivery.properties
-                );
-
-                match example::handler(my_data) {
-                    Ok(()) => (),
-                    Err(error) => {
-                        error!(?error, "Failed to handle queue message");
-                        return;
-                    }
-                }
-
-                delivery
-                    .ack(BasicAckOptions::default())
-                    .await
-                    .expect("Failed to ack send_webhook_event message");
-            }
-            .instrument(info_span!(
-                "Handling queued message",
-                handler_id = %uuid::Uuid::new_v4()
-            ))
-        });
+        handler_extract_content_job::register_handler(
+            &channel,
+            &self.rabbitmq_queue_name_prefix,
+            self.s3_repository.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -149,7 +108,7 @@ pub async fn get_rabbitmq_connection(
 /// # Returns
 /// An initialized bucket
 #[tracing::instrument(name = "Setting up S3 object store")]
-pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, ApplicationBuildError> {
+pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, ApplicationError> {
     let region = Region::Custom {
         region: settings.region.to_owned(),
         endpoint: settings.endpoint(),
@@ -175,10 +134,10 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
         match error {
             s3::error::S3Error::Http(code, _) => {
                 if code != 404 {
-                    return Err(ApplicationBuildError::S3Error(error));
+                    return Err(ApplicationError::S3Error(error));
                 }
             }
-            _ => return Err(ApplicationBuildError::S3Error(error)),
+            _ => return Err(ApplicationError::S3Error(error)),
         }
 
         info!("Unknown bucket {}, creating it ...", settings.bucket_name);
@@ -194,7 +153,7 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ApplicationBuildError {
+pub enum ApplicationError {
     #[error("S3 credentials error: {0}")]
     S3CredentialsError(#[from] s3::creds::error::CredentialsError),
     #[error(transparent)]
@@ -203,6 +162,6 @@ pub enum ApplicationBuildError {
     IOError(#[from] std::io::Error),
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
-    // #[error(transparent)]
-    // MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    #[error(transparent)]
+    ContentExtractJobError(#[from] HandlerExtractContentJobError),
 }

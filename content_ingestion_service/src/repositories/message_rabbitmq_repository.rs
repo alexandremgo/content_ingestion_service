@@ -100,7 +100,7 @@ impl MessageRabbitMQRepository {
         &self,
         job: ExtractContentJob,
     ) -> Result<(), MessageRabbitMQRepositoryError> {
-        let json_job = serde_json::to_string(&job).unwrap();
+        let json_job = serde_json::to_string(&job)?;
 
         self.publish(CONTENT_EXTRACT_JOB_QUEUE, json_job.as_bytes())
             .await
@@ -111,6 +111,8 @@ impl MessageRabbitMQRepository {
 pub enum MessageRabbitMQRepositoryError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
+    #[error("Error while serializing extract_content_job message data: {0}")]
+    JsonError(#[from] serde_json::Error),
 }
 
 impl std::fmt::Debug for MessageRabbitMQRepositoryError {
