@@ -1,0 +1,55 @@
+name: Rust
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_VERSION: 0.6.3
+  SQLX_FEATURES: "rustls,postgres"
+
+# Cancels in-progress job or run from the same concurrency group
+# `github.ref`: the fully-formed ref of the branch or tag that triggered the workflow run
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+  
+defaults:
+  run:
+    working-directory: content_ingestion_worker
+
+jobs:
+  test:
+    name: Worker Tests
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: rabbitmq:3.12.0-management
+        ports:
+          - '5672:5672'
+          - '15672:15672'
+        env:
+          RABBITMQ_DEFAULT_USER: guest
+          RABBITMQ_DEFAULT_PASS: guest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Launching job only on current project changes
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          # Is it going to work if we already set the working directory ?
+          filters: |
+            worker:
+              - 'content_ingestion_worker/**'
+
+        # This GitHub Action installs a Rust toolchain using rustup. It is designed for one-line concise usage and good defaults.
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # A GitHub Action that implements smart caching for rust/cargo projects with sensible defaults.
+      - name: Rust Cache Action
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test
