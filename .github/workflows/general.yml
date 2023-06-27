@@ -1,4 +1,4 @@
-name: Rust
+name: General
 
 on: [push, pull_request]
 
@@ -8,9 +8,8 @@ env:
   SQLX_FEATURES: "rustls,postgres"
 
 # Cancels in-progress job or run from the same concurrency group
-# `github.ref`: the fully-formed ref of the branch or tag that triggered the workflow run
 concurrency:
-  group: ${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
   
 jobs:

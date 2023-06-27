@@ -1,4 +1,4 @@
-name: Rust
+name: Worker Tests
 
 on: [push, pull_request]
 
@@ -8,11 +8,10 @@ env:
   SQLX_FEATURES: "rustls,postgres"
 
 # Cancels in-progress job or run from the same concurrency group
-# `github.ref`: the fully-formed ref of the branch or tag that triggered the workflow run
 concurrency:
-  group: ${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-  
+
 defaults:
   run:
     working-directory: content_ingestion_worker
@@ -25,8 +24,8 @@ jobs:
       rabbitmq:
         image: rabbitmq:3.12.0-management
         ports:
-          - '5672:5672'
-          - '15672:15672'
+          - "5672:5672"
+          - "15672:15672"
         env:
           RABBITMQ_DEFAULT_USER: guest
           RABBITMQ_DEFAULT_PASS: guest
@@ -45,14 +44,14 @@ jobs:
 
       - name: Setup minio
         run: |
-          docker run -d -p 9000:9000 --name minio 
-                     -e "MINIO_ROOT_USER=minio"
-                     -e "MINIO_ROOT_PASSWORD=password" 
-                     -e "MINIO_SITE_REGION=eu-fr-1"
-                     -e "MINIO_SITE_NAME=par-rack-1"
-                     -v /tmp/data:/data 
-                     -v /tmp/config:/root/.minio 
-                     minio/minio server /data
+          docker run -d -p 9000:9000 --name minio \
+                     -e "MINIO_ROOT_USER=minio" \
+                     -e "MINIO_ROOT_PASSWORD=password" \ 
+                     -e "MINIO_SITE_REGION=eu-fr-1" \
+                     -e "MINIO_SITE_NAME=par-rack-1" \
+                     -v /tmp/data:/data \
+                     -v /tmp/config:/root/.minio \
+                     minio/minio server /data \
 
         # This GitHub Action installs a Rust toolchain using rustup. It is designed for one-line concise usage and good defaults.
       - name: Install the Rust toolchain
