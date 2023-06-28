@@ -1,11 +1,10 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     configuration::{ObjectStorageSettings, RabbitMQSettings, Settings},
-    handlers::handler_extract_content_job::{self, HandlerExtractContentJobError},
+    handlers::handler_extract_content_job::{self, RegisterHandlerExtractContentJobError},
     repositories::source_file_s3_repository::S3Repository,
 };
-use futures::Future;
 use lapin::{Channel, Connection};
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
@@ -92,6 +91,10 @@ impl Application {
 
         Ok(())
     }
+
+    pub fn s3_bucket(&self) -> Bucket {
+        self.s3_bucket.clone()
+    }
 }
 
 pub async fn get_rabbitmq_connection(
@@ -140,13 +143,16 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
             _ => return Err(ApplicationError::S3Error(error)),
         }
 
-        info!("Unknown bucket {}, creating it ...", settings.bucket_name);
+        info!(
+            "🪣 Unknown bucket {}, creating it ...",
+            settings.bucket_name
+        );
 
         Bucket::create_with_path_style(&settings.bucket_name, region, credentials, config).await?;
     }
 
     info!(
-        "Bucket {} has been correctly instantiated",
+        "🪣 Bucket {} has been correctly instantiated",
         settings.bucket_name
     );
     Ok(bucket)
@@ -163,5 +169,5 @@ pub enum ApplicationError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
-    ContentExtractJobError(#[from] HandlerExtractContentJobError),
+    ContentExtractJobError(#[from] RegisterHandlerExtractContentJobError),
 }

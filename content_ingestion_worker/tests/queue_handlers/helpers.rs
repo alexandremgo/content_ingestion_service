@@ -5,6 +5,7 @@ use content_ingestion_worker::{
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use lapin::{options::BasicPublishOptions, BasicProperties, Channel};
+use s3::Bucket;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -49,6 +50,9 @@ pub struct TestApp {
     pub rabbitmq_channel: Channel,
     cancel_token: CancellationToken,
     pub rabbitmq_management_api_config: RabbitMQManagementAPIConfig,
+
+    /// S3 bucket used to setup tests thanks to requests to the S3 API
+    pub s3_bucket: Bucket,
 }
 
 impl TestApp {
@@ -177,17 +181,36 @@ impl TestApp {
         let response_json: serde_json::Value = response.json().await.unwrap();
         let message_stats = &response_json["message_stats"];
 
-        let acknowledged = message_stats["ack"].as_u64().unwrap_or(0);
+        let nb_ack = message_stats["ack"].as_u64().unwrap_or(0);
         let total_delivered = message_stats["deliver"].as_u64().unwrap_or(0);
 
         info!(
             "📡 From management API on {}: total_delivered = {}, acknowledged = {}",
-            queue_name, total_delivered, acknowledged
+            queue_name, total_delivered, nb_ack
         );
 
-        (total_delivered, acknowledged)
+        (total_delivered, nb_ack)
     }
 
+    pub async fn save_content_to_s3_bucket(
+        &self,
+        content: &str,
+        object_path_name: &str,
+    ) -> Result<(), String> {
+        let content_bytes = content.as_bytes();
+
+        self.s3_bucket
+            .put_object(object_path_name.clone(), content_bytes)
+            .await
+            .map_err(|err| {
+                format!(
+                    "S3 failed to add content as an object in {}: {}",
+                    object_path_name, err
+                )
+            })?;
+
+        Ok(())
+    }
     /// Shutdowns the test suite by sending a cancel signal to every registered spawned tasks (the RabbitMQ client/worker app)
     ///
     /// It was needed because the spawned RabbitMQ client/worker app was not shutting down correctly after each test
@@ -214,6 +237,13 @@ pub async fn spawn_app() -> TestApp {
         // Uses a different queue for each test case
         c.rabbitmq.queue_name_prefix = Uuid::new_v4().to_string();
 
+        // Using the same bucket for each integration tests, as:
+        // - we cannot create an infinite number of bucket
+        // - it's better to avoid creating and deleting buckets aggressively
+        // - on github action: it is created when initializing the workflow (with the aws cli)
+        //   to avoid concurrent tests trying to create the same bucket at the same time
+        c.object_storage.bucket_name = "integration-tests-bucket".to_string();
+
         c
     };
 
@@ -227,6 +257,9 @@ pub async fn spawn_app() -> TestApp {
     let application = Application::build(configuration.clone())
         .await
         .expect("Failed to build application.");
+
+    // Gets the S3 bucket before spawning the application
+    let s3_bucket = application.s3_bucket();
 
     // Creates a RabbitMQ channel before `application` is moved
     let channel = application.create_rabbitmq_channel().await.unwrap();
@@ -242,5 +275,6 @@ pub async fn spawn_app() -> TestApp {
         rabbitmq_channel: channel,
         cancel_token,
         rabbitmq_management_api_config,
+        s3_bucket,
     }
 }

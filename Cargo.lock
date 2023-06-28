@@ -756,6 +756,7 @@ dependencies = [
 name = "content_ingestion_worker"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "config",
  "futures",
