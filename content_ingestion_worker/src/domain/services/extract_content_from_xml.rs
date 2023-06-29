@@ -16,22 +16,22 @@ enum CharState {
     Normal(char),
 }
 
-/// Extracts an content from a buffer, yielding the currently extracted content at every given number of words
+/// Extracts text contents from a buffer containing XML content, yielding the currently extracted content at every given number of words
 ///
 /// # Arguments
-/// * `buf_reader`: buffer for which the content is read from
+/// * `buf_reader`: buffer for which the XML content is read from
 /// BufReader provides buffering capabilities: tt reads data from an underlying reader in larger chunks to reduce
 /// the number of read calls made to the underlying reader, which can improve performance.
 /// * `nb_words_per_yield`: limit number of words triggering a new yield. Default to `DEFAULT_NB_WORDS_PER_YIELD`.
 ///
 /// # Returns
-/// A generator that yields the content of the epub progressively.
+/// A generator that yields the text content of the XML content progressively.
 /// The generator is wrapped in a Pin<Box<...>> because, like Future, a Generator can hold a reference into another field of
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
-#[tracing::instrument(name = "Extracting content using XML parsing", skip(buf_reader))]
-pub fn extract_epub_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
+#[tracing::instrument(name = "Extracting text contents from XML content", skip(buf_reader))]
+pub fn extract_content_from_xml<'box_lt, BufReaderType: BufRead + 'box_lt>(
     buf_reader: BufReaderType,
     nb_words_per_yield: Option<usize>,
 ) -> Pin<Box<dyn Generator<Yield = String, Return = Result<(), ()>> + 'box_lt>> {
@@ -192,7 +192,7 @@ pub fn extract_epub_content<'box_lt, BufReaderType: BufRead + 'box_lt>(
 }
 
 #[cfg(test)]
-mod test_extract_epub_content {
+mod test_extract_content_from_xml {
     use super::*;
     use genawaiter::GeneratorState;
     use std::{io::BufReader, sync::Mutex};
@@ -201,7 +201,7 @@ mod test_extract_epub_content {
     fn on_empty_input_it_should_extract_empty_content() {
         let content = "";
         let buf_reader = BufReader::new(content.as_bytes());
-        let mut generator = extract_epub_content(buf_reader, None);
+        let mut generator = extract_content_from_xml(buf_reader, None);
 
         // Checks empty yield
         let extracted_content = match generator.as_mut().resume() {
@@ -223,7 +223,7 @@ mod test_extract_epub_content {
     fn on_simple_correct_epub_content_it_should_extract_in_1_yield_and_complete() {
         let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
         let buf_reader = BufReader::new(content.as_bytes());
-        let mut generator = extract_epub_content(buf_reader, None);
+        let mut generator = extract_content_from_xml(buf_reader, None);
 
         // Checks 1 yield
         let extracted_content = match generator.as_mut().resume() {
@@ -251,7 +251,7 @@ mod test_extract_epub_content {
     </html>";
         let buf_reader = BufReader::new(content.as_bytes());
 
-        let mut generator = extract_epub_content(buf_reader, None);
+        let mut generator = extract_content_from_xml(buf_reader, None);
         let extracted_content = match generator.as_mut().resume() {
             GeneratorState::Yielded(content) => content,
             _ => panic!("Unexpected generator state"),
@@ -266,7 +266,7 @@ mod test_extract_epub_content {
         // Pay attention to the double spaces
         let content = "<body><p>Test &lt;ok&gt;</p></body>";
         let buf_reader = BufReader::new(content.as_bytes());
-        let mut generator = extract_epub_content(buf_reader, None);
+        let mut generator = extract_content_from_xml(buf_reader, None);
 
         let extracted_content = match generator.as_mut().resume() {
             GeneratorState::Yielded(content) => content,
@@ -289,7 +289,7 @@ mod test_extract_epub_content {
             let result = lines_iter.next().unwrap().unwrap();
 
             let buf_reader = BufReader::new(content.as_bytes());
-            let mut generator = extract_epub_content(buf_reader, None);
+            let mut generator = extract_content_from_xml(buf_reader, None);
 
             let extracted_content = match generator.as_mut().resume() {
                 GeneratorState::Yielded(extracted_content) => extracted_content,
@@ -309,7 +309,7 @@ mod test_extract_epub_content {
         let result_2 = "are you?";
 
         let buf_reader = BufReader::new(content.as_bytes());
-        let mut generator = extract_epub_content(buf_reader, Some(4));
+        let mut generator = extract_content_from_xml(buf_reader, Some(4));
 
         let extracted_content = match generator.as_mut().resume() {
             GeneratorState::Yielded(content) => content,
@@ -350,7 +350,7 @@ mod test_extract_epub_content {
         );
 
         let buf_reader = BufReader::new(content.as_bytes());
-        let mut generator = extract_epub_content(buf_reader, Some(8));
+        let mut generator = extract_content_from_xml(buf_reader, Some(8));
 
         // Asserts each yield
         for i in 0..expected_nb_yields {

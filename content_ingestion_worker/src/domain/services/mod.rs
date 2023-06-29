@@ -1,1 +1,1 @@
-pub mod extract_epub_content;
+pub mod extract_content_from_xml;
