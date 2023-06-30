@@ -17,24 +17,24 @@ fn on_correct_epub_it_extracts_contents() {
     let mut generator = extract_content_from_xml(buf_reader, Some(nb_words_per_document));
     let mut completed = false;
 
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("tests/resources/results_3_bytes_accessible.txt")
-        .unwrap();
+    // Test locally
+    // let mut file = std::fs::OpenOptions::new()
+    //     .create(true)
+    //     .append(true)
+    //     .open("tests/resources/results_3_bytes_accessible.txt")
+    //     .unwrap();
 
-    while !completed {
-        let extracted_content = match generator.as_mut().resume() {
-            GeneratorState::Yielded(content) => content,
-            GeneratorState::Complete(_result) => {
-                completed = true;
-                String::from("")
-            }
-        };
+    // while !completed {
+    //     let extracted_content = match generator.as_mut().resume() {
+    //         GeneratorState::Yielded(content) => content,
+    //         GeneratorState::Complete(_result) => {
+    //             completed = true;
+    //             String::from("")
+    //         }
+    //     };
 
-        if let Err(e) = writeln!(file, "{}\n----\n", extracted_content) {
-            eprintln!("Couldn't write to file: {}", e);
-        }
-    }
-
+    //     if let Err(e) = writeln!(file, "{}\n----\n", extracted_content) {
+    //         eprintln!("Couldn't write to file: {}", e);
+    //     }
+    // }
 }
