@@ -1,6 +1,6 @@
 use genawaiter::{rc::gen, yield_, Generator};
 use quick_xml::{events::Event, reader::Reader};
-use std::{io::BufRead, pin::Pin};
+use std::{io::{BufRead, Read}, pin::Pin};
 use tracing::debug;
 
 pub const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
@@ -30,6 +30,8 @@ enum CharState {
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
+/// 
+/// TODO: why not Read for the type ? Because of xml Reader !
 #[tracing::instrument(name = "Extracting text contents from XML content", skip(buf_reader))]
 pub fn extract_content_from_xml<'box_lt, BufReaderType: BufRead + 'box_lt>(
     buf_reader: BufReaderType,

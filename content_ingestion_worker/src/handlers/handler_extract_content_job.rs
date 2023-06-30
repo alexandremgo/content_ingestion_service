@@ -9,7 +9,10 @@ use lapin::{
 use tracing::{debug, error, info, info_span, Instrument};
 
 use crate::{
-    domain::entities::extract_content_job::ExtractContentJob,
+    domain::{
+        entities::extract_content_job::ExtractContentJob,
+        services::extract_content_from_xml::extract_content_from_xml,
+    },
     helper::error_chain_fmt,
     repositories::{
         message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
@@ -168,6 +171,8 @@ pub async fn execute_handler(
         object_store_path_name,
         std::str::from_utf8(file_content.as_slice()).unwrap()
     );
+
+    let generator = extract_content_from_xml(buf_reader, Some(100));
 
     Ok(())
 }
