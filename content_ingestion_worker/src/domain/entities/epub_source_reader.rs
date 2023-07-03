@@ -22,6 +22,7 @@ pub struct EpubSourceReader {
     // current_content: String, // Needed so the current content lives long enough so the reference cur_cotnent_chars can exist
 }
 
+// TODO: EpubSourceReaderError
 #[derive(Debug)]
 pub enum TryNewError {
     ArchiveError(String),
@@ -126,7 +127,8 @@ impl Read for EpubSourceReader {
 
         // Tries to fill as much as possible the buffer
         while i < buf.len() && self.current_char_index < self.current_content_chars.len() {
-            let current_str_u8 = self.current_content_chars[self.current_char_index].encode_utf8(&mut utf8_char_buf);
+            let current_str_u8 =
+                self.current_content_chars[self.current_char_index].encode_utf8(&mut utf8_char_buf);
             let bytes_len = current_str_u8.len();
 
             // buf length needs to be >= 4
@@ -139,7 +141,7 @@ impl Read for EpubSourceReader {
                 buf[i] = utf8_char_buf[j];
                 i += 1;
             }
-           
+
             // Goes 1 char at a time
             self.current_char_index += 1;
         }
@@ -205,7 +207,8 @@ mod tests {
     #[test]
     fn on_correct_epub_it_creates_a_content_reader() {
         let mut source_buffer =
-            EpubSourceReader::try_new(String::from("tests/resources/accessible_epub_3.epub")).unwrap();
+            EpubSourceReader::try_new(String::from("tests/resources/accessible_epub_3.epub"))
+                .unwrap();
         // let mut source_buffer = EpubSourceReader::try_new(String::from("src/tests/minimal_sample.epub")).unwrap();
 
         println!("🔮🔮🔮🔮🔮🔮🔮 Let's go");
@@ -215,14 +218,17 @@ mod tests {
         loop {
             let mut buf = [0; 200];
             match source_buffer.read(&mut buf) {
-                Ok(filling_len) =>  {
+                Ok(filling_len) => {
                     println!("Filled with {} bytes", filling_len);
                     if filling_len == 0 {
                         println!("NO MORE TO READ");
                         break;
                     }
-                    println!("Content: {}\n\n", String::from_utf8(buf[0..filling_len].to_vec()).unwrap());
-                },
+                    println!(
+                        "Content: {}\n\n",
+                        String::from_utf8(buf[0..filling_len].to_vec()).unwrap()
+                    );
+                }
                 Err(error) => {
                     panic!("An error occurred: {:?}", error);
                 }

@@ -18,9 +18,11 @@ impl std::fmt::Debug for XMLReaderError {
     }
 }
 
-// TODO: SourceReader: BufRead + MetaRead
-pub struct XMLReader<SourceReader: BufRead> {
-    reader: quick_xml::reader::Reader<SourceReader>,
+pub struct XMLReader<SourceReader: Read + MetaRead> {
+    /// XML inner reader, wrapping any `BufReader`
+    /// `BufRead` implementation is needed for `read_event_into`
+    /// `BufReader` is needed to access to the inner reader (via `get_ref` for ex)
+    reader: quick_xml::reader::Reader<BufReader<SourceReader>>,
 
     current_content_chars: Vec<char>,
     current_char_index: usize,
@@ -30,14 +32,12 @@ pub struct XMLReader<SourceReader: BufRead> {
     current_meta: Option<String>,
 }
 
-/// Builds a new XMLReader from a reader implementing Read
-pub fn build_from_read<R: Read>(reader: R) -> XMLReader<BufReader<R>> {
+/// Builds a new XMLReader from a reader not implementing BufRead
+pub fn build_from_reader<SourceReader: Read + MetaRead>(
+    reader: SourceReader,
+) -> XMLReader<SourceReader> {
+    // `BufRead` implementation is needed for `read_event_into`
     let buf_reader = BufReader::new(reader);
-    build_from_buf_read(buf_reader)
-}
-
-/// Builds a new XMLReader from a reader implementing BufRead
-pub fn build_from_buf_read<R: BufRead>(buf_reader: R) -> XMLReader<R> {
     let reader = quick_xml::reader::Reader::from_reader(buf_reader);
 
     XMLReader {
@@ -49,7 +49,20 @@ pub fn build_from_buf_read<R: BufRead>(buf_reader: R) -> XMLReader<R> {
     }
 }
 
-impl<SourceReader: BufRead> XMLReader<SourceReader> {
+// /// Builds a new XMLReader from a reader implementing BufRead
+// pub fn build_from_buf_reader<R: BufRead>(buf_reader: R) -> XMLReader<R> {
+//     let reader = quick_xml::reader::Reader::from_reader(buf_reader);
+
+//     XMLReader {
+//         reader,
+//         current_meta: None,
+//         current_content_chars: vec![],
+//         current_char_index: 0,
+//         current_content_inside_body: 0,
+//     }
+// }
+
+impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
     /// Caches the content appearing inside the next XML tags
     #[tracing::instrument(name = "Caching next XML content", skip(self))]
     fn next_content(&mut self) -> Result<(), XMLReaderError> {
@@ -123,7 +136,7 @@ impl<SourceReader: BufRead> XMLReader<SourceReader> {
     }
 }
 
-impl<SourceReader: BufRead> Read for XMLReader<SourceReader> {
+impl<SourceReader: Read + MetaRead> Read for XMLReader<SourceReader> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         // There is no more chars to read from the current content,
         // tries to get next content available from EPUB
@@ -166,9 +179,16 @@ impl<SourceReader: BufRead> Read for XMLReader<SourceReader> {
     }
 }
 
-impl<SourceReader: BufRead> MetaRead for XMLReader<SourceReader> {
+/// Gets the meta information of the currently read chunk
+///
+/// Adds the current XMLReader meta information to the current meta information of the wrapped source reader
+impl<SourceReader: Read + MetaRead> MetaRead for XMLReader<SourceReader> {
     fn current_read_meta(&self) -> Option<String> {
-        self.current_meta.clone()
+        Some(format!(
+            "{:?} -> {:?}",
+            self.reader.get_ref().get_ref().current_read_meta(),
+            self.current_meta.clone()
+        ))
     }
 }
 
@@ -181,7 +201,7 @@ mod test_xml_reader {
     fn on_empty_input_it_should_read_an_empty_content() {
         let content = "";
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         let mut extracted_content = String::new();
 
@@ -208,7 +228,7 @@ mod test_xml_reader {
     fn on_simple_xml_content_it_should_read_the_body_content() {
         let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         let mut extracted_content = String::new();
         loop {
@@ -240,7 +260,7 @@ mod test_xml_reader {
     </body>
     </html>";
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         let mut extracted_content = String::new();
         loop {
@@ -268,7 +288,13 @@ mod test_xml_reader {
         let expected_content: Vec<String> = Sentences(3..10).fake();
         let tagged_content: Vec<String> = expected_content
             .iter()
-            .map(|sentence| format!("<p>{}</p>", sentence))
+            .enumerate()
+            .map(|(i, sentence)| {
+                if i % 2 == 0 {
+                    return format!("<h2>{}</h2>", sentence);
+                }
+                return format!("<p>{}</p>", sentence);
+            })
             .collect();
         let content = format!(
             "<html><head><title>Test</title></head><body>{}</body></html>",
@@ -276,7 +302,7 @@ mod test_xml_reader {
         );
 
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
         let mut extracted_content = String::new();
@@ -289,6 +315,12 @@ mod test_xml_reader {
                         break;
                     }
                     let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    // TODO: test on meta
+                    println!(
+                        "Read: meta = {}\ncontent={}\n\n",
+                        xml_reader.current_read_meta().unwrap(),
+                        read_content
+                    );
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
@@ -319,7 +351,7 @@ mod test_xml_reader {
         );
 
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
         let mut extracted_content = String::new();
@@ -359,7 +391,7 @@ mod test_xml_reader {
         );
 
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
         let mut extracted_content = String::new();
@@ -399,7 +431,7 @@ mod test_xml_reader {
         );
 
         let source_reader = DumbMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_read(source_reader);
+        let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
         let mut extracted_content = String::new();
@@ -437,7 +469,7 @@ mod test_xml_reader {
 
     impl<Reader: Read> MetaRead for DumbMetaReader<Reader> {
         fn current_read_meta(&self) -> Option<String> {
-            Some("test meta".to_string())
+            Some("XMLReader fake meta".to_string())
         }
     }
 

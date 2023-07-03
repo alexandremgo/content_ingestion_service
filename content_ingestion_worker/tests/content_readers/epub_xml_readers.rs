@@ -2,9 +2,22 @@ use std::io::BufReader;
 use std::io::Write;
 
 use content_ingestion_worker::{
-    domain::entities::epub_source_reader, domain::{services::extract_content_from_xml::{self, extract_content_from_xml}, entities::epub_source_reader::EpubSourceReader},
+    domain::entities::epub_source_reader,
+    domain::{
+        entities::{epub_reader::EpubReader, epub_source_reader::EpubSourceReader, xml_reader},
+        services::extract_content_from_xml::{self, extract_content_from_xml},
+    },
 };
 use genawaiter::GeneratorState;
+
+#[test]
+fn using_readers() {
+    let file = std::fs::File::open(String::from("tests/resources/accessible_epub_3.epub")).unwrap();
+    let file_reader = BufReader::new(file);
+
+    let epub_reader = EpubReader::from_reader(file_reader).unwrap();
+    let xml_reader = xml_reader::build_from_reader(epub_reader);
+}
 
 #[test]
 fn on_correct_epub_it_extracts_contents() {

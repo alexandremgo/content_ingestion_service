@@ -1,8 +1,6 @@
 use epub::doc::{DocError, EpubDoc};
-use std::cmp::min;
 use std::io::{Read, Seek};
-use std::{fs::File, io::BufReader};
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::helper::error_chain_fmt;
 
@@ -12,9 +10,9 @@ use super::meta_read::MetaRead;
 // use crate::ports::source_buffer_port::{NextError, SourceBufferPort};
 
 /// [Seek](https://doc.rust-lang.org/stable/std/io/trait.Seek.html) implementation is needed
-/// TODO: name: SourceReader ?
-pub struct EpubReader<Reader: Read + Seek> {
-    source: EpubDoc<Reader>,
+/// To be composable: SourceReader: Read + Seek + MetaRead too
+pub struct EpubReader<SourceReader: Read + Seek> {
+    source: EpubDoc<SourceReader>,
 
     // Avoids looping in EpubDoc reader
     previous_content_id: String,
@@ -48,29 +46,13 @@ pub enum NextContentError {
     Ended,
 }
 
-impl<Reader: Read + Seek> EpubReader<Reader> {
-    // TODO: to remove ?
-    // pub fn try_new(source_file_path: String) -> Result<Self, EpubReaderError> {
-    //     let source = EpubDoc::new(source_file_path)?;
-
-    //     Ok(EpubReader {
-    //         source,
-    //         previous_content_id: String::from(""), // TODO: empty string = bad ?
-    //         current_byte_index: 0,
-    //         current_content_bytes: vec![],
-    //         current_content_chars: vec![],
-    //         current_char_index: 0,
-
-    //         current_meta: None,
-    //     })
-    // }
-
-    pub fn from_reader(reader: Reader) -> Result<Self, EpubReaderError> {
+impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
+    pub fn from_reader(reader: SourceReader) -> Result<Self, EpubReaderError> {
         let source = EpubDoc::from_reader(reader)?;
 
         Ok(EpubReader {
             source,
-            previous_content_id: String::from(""), // TODO: empty string = bad ?
+            previous_content_id: String::from(""),
             current_byte_index: 0,
             current_content_bytes: vec![],
             current_content_chars: vec![],
@@ -81,7 +63,7 @@ impl<Reader: Read + Seek> EpubReader<Reader> {
     }
 }
 
-impl<Reader: Read + Seek> Read for EpubReader<Reader> {
+impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
     // Version with Unicode scalar values
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         // There is no more chars to read from the current content,
@@ -200,14 +182,31 @@ impl<Reader: Read + Seek> Read for EpubReader<Reader> {
     // }
 }
 
-impl<Reader: Read + Seek> MetaRead for EpubReader<Reader> {
+impl<SourceReader: Read + Seek> MetaRead for EpubReader<SourceReader> {
     fn current_read_meta(&self) -> Option<String> {
         self.current_meta.clone()
     }
 }
 
+// /// Implements BufRead on EpubReader
+// impl<SourceReader: Read + Seek> BufRead for EpubReader<SourceReader> {
+//     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+//         let result = self.current_content_chars.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice();
+//         Ok(result)
+//     }
+
+//     fn consume(&mut self, amt: usize) {
+//         // `fill_buf` never returns an error
+//         let mut full_buf = self.fill_buf().unwrap();
+//         let new_buf = full_buf[amt..].to_vec(); // .iter().map()
+//         let buf_str = from_utf8(&new_buf);
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
+    use std::io::BufReader;
+
     use super::*;
 
     #[test]
