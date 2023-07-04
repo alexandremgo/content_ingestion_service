@@ -1,5 +1,5 @@
 use quick_xml::events::Event;
-use std::io::{BufRead, BufReader, ErrorKind, Read};
+use std::io::{BufReader, ErrorKind, Read};
 use tracing::debug;
 
 use crate::helper::error_chain_fmt;
@@ -208,11 +208,11 @@ mod test_xml_reader {
         loop {
             let mut buf = [0; 100];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
@@ -234,11 +234,11 @@ mod test_xml_reader {
         loop {
             let mut buf = [0; 100];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
@@ -266,11 +266,11 @@ mod test_xml_reader {
         loop {
             let mut buf = [0; 100];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
@@ -310,11 +310,11 @@ mod test_xml_reader {
             // The buffer is big enough to receive each sentence
             let mut buf = [0; 1000];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     // TODO: test on meta
                     println!(
                         "Read: meta = {}\ncontent={}\n\n",
@@ -359,11 +359,11 @@ mod test_xml_reader {
             // The buffer is too small to receive the 1st and 3th sentence
             let mut buf = [0; 10];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
@@ -399,11 +399,11 @@ mod test_xml_reader {
             // The buffer is big enough to receive each sentence
             let mut buf = [0; 1000];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
@@ -440,11 +440,11 @@ mod test_xml_reader {
             // The buffer is big enough to receive each sentence
             let mut buf = [0; 1000];
             match xml_reader.read(&mut buf) {
-                Ok(filling_len) => {
-                    if filling_len == 0 {
+                Ok(read_len) => {
+                    if read_len == 0 {
                         break;
                     }
-                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
                     extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
