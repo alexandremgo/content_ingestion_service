@@ -1,4 +1,5 @@
 use epub::doc::{DocError, EpubDoc};
+use serde_json::{json, Map, Value as JsonValue};
 use std::io::{Read, Seek};
 use tracing::debug;
 
@@ -6,9 +7,13 @@ use crate::helper::error_chain_fmt;
 
 use super::meta_read::MetaRead;
 
-// use crate::domain::entities::source::SourceChar;
-// use crate::ports::source_buffer_port::{NextError, SourceBufferPort};
-
+/// EPUB reader
+///
+/// An EPUB is an archive file consisting of XHTML files carrying the content, along with images and other supporting file.
+/// This reader read the content of the EPUB following its linear reading order defined in its `spine` element.
+///
+/// The read content contains XHTML. It needs to be read/wrapped with an XML reader.
+///
 /// [Seek](https://doc.rust-lang.org/stable/std/io/trait.Seek.html) implementation is needed
 /// To be composable: SourceReader: Read + Seek + MetaRead too
 pub struct EpubReader<SourceReader: Read + Seek> {
@@ -17,16 +22,15 @@ pub struct EpubReader<SourceReader: Read + Seek> {
     // Avoids looping in EpubDoc reader
     previous_content_id: String,
 
+    // TODO: to remove bytes version
     current_content_bytes: Vec<u8>, // Box<[u8]>
     current_byte_index: usize,
+
     current_content_chars: Vec<char>,
     current_char_index: usize,
-    // Tried to keep alive an iterator on the current content, but difficulty with lifetime
-    // current_content_chars: Option<Box<Chars<'content_lt>>>,
-    // current_content: String, // Needed so the current content lives long enough so the reference cur_cotnent_chars can exist
 
     // MetaRead
-    current_meta: Option<String>,
+    current_meta: JsonValue,
 }
 
 #[derive(thiserror::Error)]
@@ -58,8 +62,19 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
             current_content_chars: vec![],
             current_char_index: 0,
 
-            current_meta: None,
+            current_meta: JsonValue::Null,
         })
+    }
+
+    /// Updates meta information as a JSON object
+    fn update_meta(&mut self, key: &str, value: JsonValue) {
+        if let Some(map) = self.current_meta.as_object_mut() {
+            map.insert(key.to_owned(), value);
+        } else {
+            let mut map = Map::new();
+            map.insert(key.to_owned(), value);
+            self.current_meta = JsonValue::Object(map);
+        }
     }
 }
 
@@ -89,10 +104,23 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
             }
 
             // To improve
-            self.current_meta = Some(format!(
-                "Chapter: {:?}",
-                self.source.get_current_path().unwrap_or_default()
-            ));
+            self.update_meta(
+                "chapter_path",
+                json!(self
+                    .source
+                    .get_current_path()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()),
+            );
+            self.update_meta("chapter_number", json!(self.source.get_current_page()));
+            self.update_meta("chapters_size", json!(self.source.get_num_pages()));
+            self.update_meta("chapter_id", json!(self.source.get_current_id()));
+
+            // self.current_meta = Some(format!(
+            //     "Chapter: {:?}",
+            //     self.source.get_current_path().unwrap_or_default()
+            // ));
 
             self.previous_content_id = current_content_id;
             // TODO: here actually read chars ? or graphene ?
@@ -183,7 +211,7 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
 }
 
 impl<SourceReader: Read + Seek> MetaRead for EpubReader<SourceReader> {
-    fn current_read_meta(&self) -> Option<String> {
+    fn current_read_meta(&self) -> JsonValue {
         self.current_meta.clone()
     }
 }
@@ -233,7 +261,7 @@ mod tests {
                         break;
                     }
                     println!(
-                        "Content: meta: {:?}\n {}\n-----\n",
+                        "Content: meta: {}\n {}\n-----\n",
                         source_buffer.current_read_meta(),
                         // filling_len,
                         String::from_utf8(buf[0..filling_len].to_vec()).unwrap()

@@ -1,4 +1,5 @@
 use genawaiter::{rc::gen, yield_, Generator};
+use serde_json::Value as JsonValue;
 use std::{io::Read, pin::Pin};
 use tracing::{debug, error};
 
@@ -17,7 +18,7 @@ enum CharState {
 }
 
 pub struct Document {
-    pub meta: String,
+    pub meta: JsonValue,
     pub content: String,
 }
 
@@ -45,7 +46,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
     nb_words_per_yield: Option<usize>,
 ) -> Pin<Box<dyn Generator<Yield = Document, Return = Result<(), ()>> + 'box_lt>> {
     let nb_words_per_yield = nb_words_per_yield.unwrap_or(DEFAULT_NB_WORDS_PER_YIELD);
-    let mut previous_meta = "".to_string();
+    let mut previous_meta = JsonValue::Null;
     let mut current_extracted_content = String::new();
     let mut current_nb_words = 0;
     let mut previous_char_state = CharState::None;
@@ -61,7 +62,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                         break;
                     }
 
-                    let current_meta = reader.current_read_meta().unwrap_or("".to_string());
+                    let current_meta = reader.current_read_meta();
 
                     // Separates document by meta
                     if current_meta != previous_meta {
