@@ -7,6 +7,9 @@ use crate::helper::error_chain_fmt;
 
 use super::meta_read::MetaRead;
 
+const EPUB_READER_META_KEY: &str = "epub";
+const EPUB_READER_META_KEY_DEFAULT_INITIAL: &str = "initial";
+
 /// EPUB reader
 ///
 /// An EPUB is an archive file consisting of XHTML files carrying the content, along with images and other supporting file.
@@ -15,7 +18,8 @@ use super::meta_read::MetaRead;
 /// The read content contains XHTML. It needs to be read/wrapped with an XML reader.
 ///
 /// [Seek](https://doc.rust-lang.org/stable/std/io/trait.Seek.html) implementation is needed
-/// To be composable: SourceReader: Read + Seek + MetaRead too
+///
+/// As we cannot get a reference to the inner reader of `EpubDoc`, we cannot currently compose with a `SourceReader` implementing `MetaRead`
 pub struct EpubReader<SourceReader: Read + Seek> {
     source: EpubDoc<SourceReader>,
 
@@ -50,9 +54,25 @@ pub enum NextContentError {
     Ended,
 }
 
+
 impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
-    pub fn from_reader(reader: SourceReader) -> Result<Self, EpubReaderError> {
+    /// Create an EpubReader from a source reader (implementing Read + Seek)
+    /// 
+    /// # Params
+    /// - reader: SourceReader implementing Read + Seek
+    /// - initial_meta: (optional) initial meta information as a JSON object
+    pub fn from_reader(
+        reader: SourceReader,
+        initial_meta: Option<JsonValue>,
+    ) -> Result<Self, EpubReaderError> {
         let source = EpubDoc::from_reader(reader)?;
+
+        let initial_meta = initial_meta.unwrap_or(JsonValue::Null);
+        let current_meta = match initial_meta {
+            JsonValue::Object(map) => json!(map),
+            JsonValue::Null => JsonValue::Null,
+            _ => json!({ EPUB_READER_META_KEY_DEFAULT_INITIAL: initial_meta }),
+        };
 
         Ok(EpubReader {
             source,
@@ -61,8 +81,7 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
             current_content_bytes: vec![],
             current_content_chars: vec![],
             current_char_index: 0,
-
-            current_meta: JsonValue::Null,
+            current_meta,
         })
     }
 
@@ -212,7 +231,18 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
 
 impl<SourceReader: Read + Seek> MetaRead for EpubReader<SourceReader> {
     fn current_read_meta(&self) -> JsonValue {
-        self.current_meta.clone()
+        // let mut source_meta = self.source.get_ref().get_ref().current_read_meta();
+
+        // if let Some(map) = source_meta.as_object_mut() {
+        //     map.insert(EPUB_READER_META_KEY.to_string(), self.current_meta.clone());
+        //     return source_meta;
+        // } else {
+        //     let mut map = Map::new();
+        //     map.insert(EPUB_READER_META_KEY.to_string(), self.current_meta.clone());
+        //     return JsonValue::Object(map);
+        // }
+
+        json!({ EPUB_READER_META_KEY: self.current_meta.clone() })
     }
 }
 
@@ -243,7 +273,11 @@ mod tests {
             std::fs::File::open(String::from("tests/resources/accessible_epub_3.epub")).unwrap();
         let file_reader = BufReader::new(file);
 
-        let mut source_buffer = EpubReader::from_reader(file_reader).unwrap();
+        let mut source_buffer = EpubReader::from_reader(
+            file_reader,
+            Some(json!({ "book_title": "accessible_epub_3" })),
+        )
+        .unwrap();
 
         // let mut source_buffer = EpubReader::try_new(String::from("src/tests/minimal_sample.epub")).unwrap();
 
