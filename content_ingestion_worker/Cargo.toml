@@ -32,3 +32,4 @@ genawaiter = "0.99.1"
 quick-xml = "0.29.0"
 epub = "2.1.1"
 fake = "2.6.1"
+lopdf = { version = "0.31.0", features = ["pom", "pom_parser"] }
