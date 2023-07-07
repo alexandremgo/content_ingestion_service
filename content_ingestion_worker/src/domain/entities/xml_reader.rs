@@ -39,7 +39,7 @@ pub struct XMLReader<SourceReader: Read + MetaRead> {
     current_inside_title: usize,
 
     // MetaRead
-    current_meta: JsonValue,
+    metadata: JsonValue,
 }
 
 /// Builds a new XMLReader from a reader not implementing BufRead
@@ -52,7 +52,7 @@ pub fn build_from_reader<SourceReader: Read + MetaRead>(
 
     XMLReader {
         reader,
-        current_meta: JsonValue::Null,
+        metadata: JsonValue::Null,
         current_content_chars: vec![],
         current_char_index: 0,
         current_inside_body: 0,
@@ -66,7 +66,7 @@ pub fn build_from_reader<SourceReader: Read + MetaRead>(
 
 //     XMLReader {
 //         reader,
-//         current_meta: None,
+//         metadata: None,
 //         current_content_chars: vec![],
 //         current_char_index: 0,
 //         current_inside_body: 0,
@@ -158,14 +158,14 @@ impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
         Ok(())
     }
 
-    /// Updates meta information as a JSON object
+    /// Updates metadata as a JSON object
     fn update_meta(&mut self, key: &str, value: JsonValue) {
-        if let Some(map) = self.current_meta.as_object_mut() {
+        if let Some(map) = self.metadata.as_object_mut() {
             map.insert(key.to_owned(), value);
         } else {
             let mut map = Map::new();
             map.insert(key.to_owned(), value);
-            self.current_meta = JsonValue::Object(map);
+            self.metadata = JsonValue::Object(map);
         }
     }
 }
@@ -213,26 +213,26 @@ impl<SourceReader: Read + MetaRead> Read for XMLReader<SourceReader> {
     }
 }
 
-/// Gets the meta information of the currently read chunk
+/// Gets the metadata of the currently read chunk
 ///
-/// Adds the current XMLReader meta information to the current meta information of the wrapped source reader
+/// Adds the current XMLReader metadata to the current metadata of the wrapped source reader
 impl<SourceReader: Read + MetaRead> MetaRead for XMLReader<SourceReader> {
-    fn current_read_meta(&self) -> JsonValue {
-        let mut source_meta = self.reader.get_ref().get_ref().current_read_meta();
+    fn get_current_metadata(&self) -> JsonValue {
+        let mut source_meta = self.reader.get_ref().get_ref().get_current_metadata();
 
         if let Some(map) = source_meta.as_object_mut() {
-            map.insert(XML_READER_META_KEY.to_string(), self.current_meta.clone());
+            map.insert(XML_READER_META_KEY.to_string(), self.metadata.clone());
             return source_meta;
         } else {
             let mut map = Map::new();
-            map.insert(XML_READER_META_KEY.to_string(), self.current_meta.clone());
+            map.insert(XML_READER_META_KEY.to_string(), self.metadata.clone());
             return JsonValue::Object(map);
         }
     }
 }
 
 #[cfg(test)]
-mod test_xml_reader {
+mod xml_reader_tests {
     use super::*;
     use fake::{faker::lorem::en::Sentences, Fake};
 
@@ -355,10 +355,10 @@ mod test_xml_reader {
                         break;
                     }
                     let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
-                    // TODO: test on meta
+
                     println!(
                         "Read: meta = {}\ncontent={}\n\n",
-                        xml_reader.current_read_meta(),
+                        xml_reader.get_current_metadata(),
                         read_content
                     );
                     extracted_content.push_str(&read_content);
@@ -502,7 +502,7 @@ mod test_xml_reader {
         ));
     }
 
-    // ----- Tests on meta information -----
+    // ----- Tests on metadata -----
     // Only test on `title` meta
 
     #[test]
@@ -546,14 +546,14 @@ mod test_xml_reader {
                         // Asserts on the `title` meta
                         assert_eq!(
                             json!(titles[read_counter % 2]),
-                            xml_reader.current_read_meta()[XML_READER_META_KEY]
+                            xml_reader.get_current_metadata()[XML_READER_META_KEY]
                                 [XML_READER_META_KEY_TITLE]
                         );
 
                         // Asserts on the propagated meta (from source reader)
                         assert_eq!(
                             json!(SIMPLE_READER_META_VALUE_EX),
-                            xml_reader.current_read_meta()[SIMPLE_READER_META_KEY]
+                            xml_reader.get_current_metadata()[SIMPLE_READER_META_KEY]
                                 [SIMPLE_READER_META_KEY_EX]
                         );
                     }
@@ -569,7 +569,7 @@ mod test_xml_reader {
 
     // It should propagate source meta too - what happens if empty
     #[test]
-    fn on_source_with_no_meta_it_should_create_current_meta_as_json_object() {
+    fn on_source_with_no_meta_it_should_create_metadata_as_json_object() {
         let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
         let source_reader = SimpleMetaReader::new(content.as_bytes());
         let mut xml_reader = build_from_reader(source_reader);
@@ -621,7 +621,7 @@ mod test_xml_reader {
     }
 
     impl<Reader: Read> MetaRead for SimpleMetaReader<Reader> {
-        fn current_read_meta(&self) -> JsonValue {
+        fn get_current_metadata(&self) -> JsonValue {
             self.meta.clone()
         }
     }

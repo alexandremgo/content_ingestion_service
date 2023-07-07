@@ -1,7 +1,7 @@
 use epub::doc::{DocError, EpubDoc};
 use serde_json::{json, Map, Value as JsonValue};
 use std::io::{Read, Seek};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::helper::error_chain_fmt;
 
@@ -26,15 +26,11 @@ pub struct EpubReader<SourceReader: Read + Seek> {
     // Avoids looping in EpubDoc reader
     previous_content_id: String,
 
-    // TODO: to remove bytes version
-    current_content_bytes: Vec<u8>, // Box<[u8]>
-    current_byte_index: usize,
-
     current_content_chars: Vec<char>,
     current_char_index: usize,
 
     // MetaRead
-    current_meta: JsonValue,
+    metadata: JsonValue,
 }
 
 #[derive(thiserror::Error)]
@@ -54,13 +50,12 @@ pub enum NextContentError {
     Ended,
 }
 
-
 impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
     /// Create an EpubReader from a source reader (implementing Read + Seek)
-    /// 
+    ///
     /// # Params
     /// - reader: SourceReader implementing Read + Seek
-    /// - initial_meta: (optional) initial meta information as a JSON object
+    /// - initial_meta: (optional) initial metadata as a JSON object
     pub fn from_reader(
         reader: SourceReader,
         initial_meta: Option<JsonValue>,
@@ -68,44 +63,47 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
         let source = EpubDoc::from_reader(reader)?;
 
         let initial_meta = initial_meta.unwrap_or(JsonValue::Null);
-        let current_meta = match initial_meta {
+        let metadata = match initial_meta {
             JsonValue::Object(map) => json!(map),
             JsonValue::Null => JsonValue::Null,
             _ => json!({ EPUB_READER_META_KEY_DEFAULT_INITIAL: initial_meta }),
         };
 
+        info!("EPUB reader source: initial metadata: {}", metadata);
+
         Ok(EpubReader {
             source,
             previous_content_id: String::from(""),
-            current_byte_index: 0,
-            current_content_bytes: vec![],
             current_content_chars: vec![],
             current_char_index: 0,
-            current_meta,
+            metadata,
         })
     }
 
-    /// Updates meta information as a JSON object
+    /// Updates metadata as a JSON object
     fn update_meta(&mut self, key: &str, value: JsonValue) {
-        if let Some(map) = self.current_meta.as_object_mut() {
+        if let Some(map) = self.metadata.as_object_mut() {
             map.insert(key.to_owned(), value);
         } else {
             let mut map = Map::new();
             map.insert(key.to_owned(), value);
-            self.current_meta = JsonValue::Object(map);
+            self.metadata = JsonValue::Object(map);
         }
     }
-}
 
-impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
-    // Version with Unicode scalar values
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        // There is no more chars to read from the current content,
-        // tries to get next content available from EPUB
-        if self.current_char_index >= self.current_content_chars.len() {
+    /// Gets content chapter by chapter
+    ///
+    /// Read the full current EPUB chapter in a String. Not optimal. But act as a (big) buffer.
+    ///
+    /// # Returns
+    /// The number of bytes read. 0 if no more content is available.
+    fn go_next_content(&mut self) -> Result<usize, EpubReaderError> {
+        let mut content_len = 0;
+        self.current_char_index = 0;
+
+        while content_len == 0 {
             self.source.go_next();
 
-            // Read the full current EPUB chapter in a String. Not optimal. But act as a (big) buffer.
             // `source.get_current_path` and then try to read each file with a Reader ?
             let (current_content, _cur_mime) = match self.source.get_current_str() {
                 None => {
@@ -122,6 +120,13 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
                 return Ok(0);
             }
 
+            self.previous_content_id = current_content_id;
+
+            content_len = current_content.len();
+            if content_len == 0 {
+                continue;
+            }
+
             // To improve
             self.update_meta(
                 "chapter_path",
@@ -136,17 +141,32 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
             self.update_meta("chapters_size", json!(self.source.get_num_pages()));
             self.update_meta("chapter_id", json!(self.source.get_current_id()));
 
-            // self.current_meta = Some(format!(
-            //     "Chapter: {:?}",
-            //     self.source.get_current_path().unwrap_or_default()
-            // ));
-
-            self.previous_content_id = current_content_id;
-            // TODO: here actually read chars ? or graphene ?
             // UTF-8 is encoded on 1 to 4 bytes. Or only handle unicode scalar values (with char)
             // Unicode scalar values can be more than 1 byte
             self.current_content_chars = current_content.chars().collect();
-            self.current_char_index = 0;
+        }
+
+        Ok(content_len)
+    }
+}
+
+impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
+    // Version with Unicode scalar values
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // There is no more chars to read from the current content,
+        // tries to get next content available from EPUB
+        if self.current_char_index >= self.current_content_chars.len() {
+            let content_len = self.go_next_content().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Error while caching next PDF content: {}", e),
+                )
+            })?;
+
+            // No more to read
+            if content_len == 0 {
+                return Ok(0);
+            }
         }
 
         // Fills up the read buffer from the current content
@@ -177,92 +197,16 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
 
         Ok(i)
     }
-
-    // Version with bytes
-    // fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-    //     // There is no more bytes to read from the current content,
-    //     // tries to get next content available from EPUB
-    //     if self.current_byte_index >= self.current_content_bytes.len() {
-    //         println!("🐊 No more bytes to read from the current content, tries to get next content available from EPUB");
-    //         self.source.go_next();
-
-    //         // Read the full current EPUB chapter in a String. Not optimal. But act as a (big) buffer.
-    //         // `source.get_current_path` and then try to read each file with a Reader ?
-    //         let (current_content, _cur_mime) = match self.source.get_current_str() {
-    //             None => {
-    //                 // No more thing to read
-    //                 return Ok(0);
-    //             }
-    //             Some(result) => result,
-    //         };
-
-    //         // To avoid infinitely looping on the last content
-    //         let current_content_id = self.source.get_current_id().unwrap();
-    //         if current_content_id.eq(&self.previous_content_id) {
-    //             return Ok(0);
-    //         }
-
-    //         self.previous_content_id = current_content_id;
-    //         self.current_byte_index = 0;
-    //         // TODO: here actually read chars ? or graphene ?
-    //         // UTF-8 is encoded on 1 to 4 bytes. Or only handle unicode scalar values (with char)
-    //         self.current_content_bytes = current_content.as_bytes().to_vec();
-    //     }
-
-    //     // Fills up the read buffer from the current content
-    //     let remaining_content_bytes_len =
-    //         self.current_content_bytes.len() - self.current_byte_index;
-
-    //     let buf_len = buf.len();
-    //     let filling_len = min(buf_len, remaining_content_bytes_len);
-    //     info!(
-    //         "🐊 Read buf len: {} | remaining content bytes len: {} | filling length: {}",
-    //         buf_len, remaining_content_bytes_len, filling_len
-    //     );
-
-    //     for i in 0..filling_len {
-    //         buf[i] = self.current_content_bytes[i + self.current_byte_index];
-    //     }
-    //     self.current_byte_index = self.current_byte_index + filling_len;
-
-    //     Ok(filling_len)
-    // }
 }
 
 impl<SourceReader: Read + Seek> MetaRead for EpubReader<SourceReader> {
-    fn current_read_meta(&self) -> JsonValue {
-        // let mut source_meta = self.source.get_ref().get_ref().current_read_meta();
-
-        // if let Some(map) = source_meta.as_object_mut() {
-        //     map.insert(EPUB_READER_META_KEY.to_string(), self.current_meta.clone());
-        //     return source_meta;
-        // } else {
-        //     let mut map = Map::new();
-        //     map.insert(EPUB_READER_META_KEY.to_string(), self.current_meta.clone());
-        //     return JsonValue::Object(map);
-        // }
-
-        json!({ EPUB_READER_META_KEY: self.current_meta.clone() })
+    fn get_current_metadata(&self) -> JsonValue {
+        json!({ EPUB_READER_META_KEY: self.metadata.clone() })
     }
 }
 
-// /// Implements BufRead on EpubReader
-// impl<SourceReader: Read + Seek> BufRead for EpubReader<SourceReader> {
-//     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-//         let result = self.current_content_chars.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice();
-//         Ok(result)
-//     }
-
-//     fn consume(&mut self, amt: usize) {
-//         // `fill_buf` never returns an error
-//         let mut full_buf = self.fill_buf().unwrap();
-//         let new_buf = full_buf[amt..].to_vec(); // .iter().map()
-//         let buf_str = from_utf8(&new_buf);
-//     }
-// }
-
 #[cfg(test)]
-mod tests {
+mod epub_reader_tests {
     use std::io::BufReader;
 
     use super::*;
@@ -296,7 +240,7 @@ mod tests {
                     }
                     println!(
                         "Content: meta: {}\n {}\n-----\n",
-                        source_buffer.current_read_meta(),
+                        source_buffer.get_current_metadata(),
                         // filling_len,
                         String::from_utf8(buf[0..filling_len].to_vec()).unwrap()
                     );
@@ -308,6 +252,6 @@ mod tests {
         }
 
         println!("🔮🔮🔮🔮🔮🔮🔮 THE END");
-        assert_eq!(1, 2);
+        assert_eq!(1, 1);
     }
 }

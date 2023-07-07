@@ -1,8 +1,6 @@
 use serde_json::Value as JsonValue;
 
-/// Meta information (chapter) about the current read index
-///
-/// TODO: could have an incremental id so the extractor can know when to stop the current document ?
+/// Metadata about the current read
 pub trait MetaRead {
-    fn current_read_meta(&self) -> JsonValue;
+    fn get_current_metadata(&self) -> JsonValue;
 }

@@ -24,7 +24,7 @@ pub struct Document {
 
 /// Extracts documents from a reader
 ///
-/// A document is defined as a content limited by a certain number of words and meta information associated to it.
+/// A document is defined as a content limited by a certain number of words and metadata associated to it.
 /// See `Document` struct.
 ///
 /// # Arguments
@@ -46,7 +46,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
     nb_words_per_yield: Option<usize>,
 ) -> Pin<Box<dyn Generator<Yield = Document, Return = Result<(), ()>> + 'box_lt>> {
     let nb_words_per_yield = nb_words_per_yield.unwrap_or(DEFAULT_NB_WORDS_PER_YIELD);
-    let mut previous_meta = JsonValue::Null;
+    let mut previous_metadata = JsonValue::Null;
     let mut current_extracted_content = String::new();
     let mut current_nb_words = 0;
     let mut previous_char_state = CharState::None;
@@ -62,13 +62,13 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                         break;
                     }
 
-                    let current_meta = reader.current_read_meta();
+                    let metadata = reader.get_current_metadata();
 
                     // Separates document by meta
-                    if current_meta != previous_meta {
+                    if metadata != previous_metadata {
                         debug!(
                             "⛏️ Meta changed: previous meta: {} | new meta: {}",
-                            previous_meta, current_meta
+                            previous_metadata, metadata
                         );
 
                         if current_nb_words > 0 {
@@ -76,7 +76,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
                             yield_!(Document {
                                 content: current_extracted_content,
-                                meta: previous_meta.clone()
+                                meta: previous_metadata.clone()
                             });
 
                             // Resets
@@ -85,7 +85,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                             previous_char_state = CharState::None;
                         }
 
-                        previous_meta = current_meta;
+                        previous_metadata = metadata;
                     }
 
                     // TODO: unwrapping: error or continue
@@ -159,7 +159,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
                             yield_!(Document {
                                 content: current_extracted_content,
-                                meta: previous_meta.clone()
+                                meta: previous_metadata.clone()
                             });
 
                             // Resets
@@ -193,7 +193,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
         yield_!(Document {
             content: current_extracted_content,
-            meta: previous_meta
+            meta: previous_metadata
         });
 
         Ok(())
