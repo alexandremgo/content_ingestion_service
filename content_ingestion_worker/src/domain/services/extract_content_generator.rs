@@ -3,7 +3,7 @@ use serde_json::Value as JsonValue;
 use std::{io::Read, pin::Pin};
 use tracing::{debug, error};
 
-use crate::domain::entities::meta_read::MetaRead;
+use crate::{domain::entities::meta_read::MetaRead, helper::error_chain_fmt};
 
 pub const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 
@@ -18,8 +18,22 @@ enum CharState {
 }
 
 pub struct Document {
-    pub meta: JsonValue,
+    pub metadata: JsonValue,
     pub content: String,
+}
+
+#[derive(thiserror::Error)]
+pub enum ExtractContentGeneratorError {
+    #[error(transparent)]
+    ReadError(#[from] std::io::Error),
+    #[error(transparent)]
+    Utf8Error(#[from] std::string::FromUtf8Error),
+}
+
+impl std::fmt::Debug for ExtractContentGeneratorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
 }
 
 /// Extracts documents from a reader
@@ -38,13 +52,16 @@ pub struct Document {
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
-///
-/// TODO: why not Read for the type ? Because of xml Reader !
 #[tracing::instrument(name = "Extracting documents from a reader", skip(reader))]
 pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>(
     reader: &'box_lt mut ReaderType,
     nb_words_per_yield: Option<usize>,
-) -> Pin<Box<dyn Generator<Yield = Document, Return = Result<(), ()>> + 'box_lt>> {
+) -> Pin<
+    Box<
+        dyn Generator<Yield = Document, Return = Result<(), ExtractContentGeneratorError>>
+            + 'box_lt,
+    >,
+> {
     let nb_words_per_yield = nb_words_per_yield.unwrap_or(DEFAULT_NB_WORDS_PER_YIELD);
     let mut previous_metadata = JsonValue::Null;
     let mut current_extracted_content = String::new();
@@ -67,16 +84,14 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                     // Separates document by meta
                     if metadata != previous_metadata {
                         debug!(
-                            "⛏️ Meta changed: previous meta: {} | new meta: {}",
+                            "Metadata changed: previous: {} | new: {}",
                             previous_metadata, metadata
                         );
 
                         if current_nb_words > 0 {
-                            debug!("⛏️ Meta changed, yielding with {} words", current_nb_words);
-
                             yield_!(Document {
                                 content: current_extracted_content,
-                                meta: previous_metadata.clone()
+                                metadata: previous_metadata.clone()
                             });
 
                             // Resets
@@ -88,8 +103,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                         previous_metadata = metadata;
                     }
 
-                    // TODO: unwrapping: error or continue
-                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
+                    let read_content = String::from_utf8(buf[0..read_len].to_vec())?;
                     for current_char in read_content.chars() {
                         // Trims any unwanted chars
                         if UNWANTED_CHARS.contains(&current_char) {
@@ -153,13 +167,13 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
                         if current_nb_words >= nb_words_per_yield {
                             debug!(
-                                "⛏️ Reached nb_words_per_yield current document: {}",
+                                "Reached nb_words_per_yield current document: {}",
                                 current_nb_words
                             );
 
                             yield_!(Document {
                                 content: current_extracted_content,
-                                meta: previous_metadata.clone()
+                                metadata: previous_metadata.clone()
                             });
 
                             // Resets
@@ -175,13 +189,10 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                             previous_char_state = current_char_state;
                         }
                     }
-
-                    // extracted_content.push_str(&read_content);
                 }
                 Err(error) => {
-                    error!("⛏️ Error while extracting content: {}", error);
-                    // TODO: return error ?
-                    break;
+                    error!("Error while extracting content: {}", error);
+                    return Err(error.into());
                 }
             };
         }
@@ -193,7 +204,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
         yield_!(Document {
             content: current_extracted_content,
-            meta: previous_metadata
+            metadata: previous_metadata
         });
 
         Ok(())
@@ -206,177 +217,123 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
     Box::pin(generator)
 }
 
-// #[cfg(test)]
-// mod test_extract_content_generator {
-//     use super::*;
-//     use genawaiter::GeneratorState;
-//     use std::{io::BufReader, sync::Mutex};
+#[cfg(test)]
+mod extract_content_generator_tests {
+    use crate::domain::entities::simple_metadata_reader::{
+        SimpleMetadataReader, SIMPLE_READER_META_KEY,
+    };
 
-//     #[test]
-//     fn on_empty_input_it_should_extract_empty_content() {
-//         let content = "";
-//         let buf_reader = BufReader::new(content.as_bytes());
-//         let mut generator = extract_content_generator(buf_reader, None);
+    use super::*;
+    use genawaiter::GeneratorState;
+    use serde_json::json;
+    use std::io::BufReader;
 
-//         // Checks empty yield
-//         let extracted_content = match generator.as_mut().resume() {
-//             GeneratorState::Yielded(content) => content,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_content, "");
+    #[test]
+    fn on_empty_source_reader_it_should_extract_empty_content() {
+        let content = "";
+        let buf_reader = BufReader::new(content.as_bytes());
+        let mut simple_reader = SimpleMetadataReader::new(buf_reader, None);
+        let mut generator = extract_content_generator(&mut simple_reader, Some(100));
 
-//         // Checks complete
-//         let extracted_result = match generator.as_mut().resume() {
-//             GeneratorState::Complete(result) => result,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_result, Ok(()));
-//     }
+        // Checks empty yield
+        let extracted_content = match generator.as_mut().resume() {
+            GeneratorState::Yielded(content) => content,
+            _ => panic!("Unexpected generator state"),
+        };
+        assert_eq!(extracted_content.content, "");
 
-//     // When the number of words in the EPUB content is < to nb_words_per_yield (only 1 yield)
-//     #[test]
-//     fn on_simple_correct_epub_content_it_should_extract_in_1_yield_and_complete() {
-//         let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-//         let buf_reader = BufReader::new(content.as_bytes());
-//         let mut generator = extract_content_generator(buf_reader, None);
+        // Checks complete
+        let extracted_result = match generator.as_mut().resume() {
+            GeneratorState::Complete(result) => result,
+            _ => panic!("Unexpected generator state"),
+        };
+        assert!(matches!(extracted_result, Ok(())));
+    }
 
-//         // Checks 1 yield
-//         let extracted_content = match generator.as_mut().resume() {
-//             GeneratorState::Yielded(content) => content,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_content, "Test");
+    #[test]
+    fn on_source_fitting_in_1_yield_it_should_extract_in_1_yield_and_complete() {
+        let content = "Test some 1 yield text";
+        let buf_reader = BufReader::new(content.as_bytes());
+        let mut simple_reader = SimpleMetadataReader::new(buf_reader, None);
+        let mut generator = extract_content_generator(&mut simple_reader, Some(100));
 
-//         // Checks complete
-//         let extracted_result = match generator.as_mut().resume() {
-//             GeneratorState::Complete(result) => result,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_result, Ok(()));
-//     }
+        // Checks 1 yield
+        let extracted_content = match generator.as_mut().resume() {
+            GeneratorState::Yielded(content) => content,
+            _ => panic!("Unexpected generator state"),
+        };
+        assert_eq!(extracted_content.content, "Test some 1 yield text");
 
-//     #[test]
-//     fn on_multiline_correct_epub_content_it_should_extract_in_1_yield() {
-//         let content = "\
-//     <html>
-//     <head><title>Test</title></head>
-//     <body>
-//         <p>Test</p>
-//     </body>
-//     </html>";
-//         let buf_reader = BufReader::new(content.as_bytes());
+        // Checks complete
+        let extracted_result = match generator.as_mut().resume() {
+            GeneratorState::Complete(result) => result,
+            _ => panic!("Unexpected generator state"),
+        };
+        assert!(matches!(extracted_result, Ok(())));
+    }
 
-//         let mut generator = extract_content_generator(buf_reader, None);
-//         let extracted_content = match generator.as_mut().resume() {
-//             GeneratorState::Yielded(content) => content,
-//             _ => panic!("Unexpected generator state"),
-//         };
+    #[test]
+    fn on_source_fitting_in_x_yields_it_should_extract_in_x_yields_and_complete() {
+        // Arranges: 8 words per sentence, except the last sentence.
+        let expected_yielded_contents = vec![
+            "It is nice to finally meet you.",
+            "Would you like some coffee? I love",
+            "coffee. I drink it every morning.",
+            "!!!!!!!!",
+            "Do you want sugar?",
+        ];
+        let expected_nb_yields = expected_yielded_contents.len();
+        let content = expected_yielded_contents.join(" ");
 
-//         assert_eq!(extracted_content, "Test");
-//     }
+        let buf_reader = BufReader::new(content.as_bytes());
+        let mut simple_reader = SimpleMetadataReader::new(buf_reader, None);
+        let mut generator = extract_content_generator(&mut simple_reader, Some(8));
 
-//     // On a content with an XML element not representing an actual XML element",
-//     #[test]
-//     fn on_xml_element_content_it_should_extract_in_1_yield() {
-//         // Pay attention to the double spaces
-//         let content = "<body><p>Test &lt;ok&gt;</p></body>";
-//         let buf_reader = BufReader::new(content.as_bytes());
-//         let mut generator = extract_content_generator(buf_reader, None);
+        // Asserts each yield
+        for i in 0..expected_nb_yields {
+            let yielded_extracted_content = match generator.as_mut().resume() {
+                GeneratorState::Yielded(content) => content,
+                _ => panic!("Unexpected generator state"),
+            };
+            assert_eq!(
+                yielded_extracted_content.content.trim(),
+                expected_yielded_contents[i]
+            );
+        }
 
-//         let extracted_content = match generator.as_mut().resume() {
-//             GeneratorState::Yielded(content) => content,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_content, "Test &lt;ok&gt;");
-//     }
+        // Checks complete
+        let extracted_result = match generator.as_mut().resume() {
+            GeneratorState::Complete(result) => result,
+            _ => panic!("Unexpected generator state"),
+        };
+        assert!(matches!(extracted_result, Ok(())));
+    }
 
-//     #[test]
-//     fn on_more_complex_contents_is_should_extract_in_1_yield() {
-//         for i in 1..3 {
-//             let file =
-//                 std::fs::File::open(format!("tests/resources/simple_{i}_with_result.txt")).unwrap();
-//             let file_reader = BufReader::new(file);
+    #[test]
+    fn on_source_with_metadata_it_should_extract_content_with_metadata() {
+        let content = "Test some 1 yield text";
+        let source_metadata_key = "source_key";
+        let source_metadata_value = "some value";
 
-//             // Gets the content to test and the result
-//             let mut lines_iter = file_reader.lines();
-//             let content = lines_iter.next().unwrap().unwrap();
-//             lines_iter.next();
-//             let result = lines_iter.next().unwrap().unwrap();
+        let buf_reader = BufReader::new(content.as_bytes());
+        let mut simple_reader = SimpleMetadataReader::new(
+            buf_reader,
+            Some(json!({ source_metadata_key: source_metadata_value })),
+        );
+        let mut generator = extract_content_generator(&mut simple_reader, Some(100));
 
-//             let buf_reader = BufReader::new(content.as_bytes());
-//             let mut generator = extract_content_generator(buf_reader, None);
+        // Checks 1 yield
+        let extracted_content = match generator.as_mut().resume() {
+            GeneratorState::Yielded(content) => content,
+            _ => panic!("Unexpected generator state"),
+        };
 
-//             let extracted_content = match generator.as_mut().resume() {
-//                 GeneratorState::Yielded(extracted_content) => extracted_content,
-//                 _ => panic!("Unexpected generator state"),
-//             };
-
-//             assert_eq!(extracted_content, result);
-//         }
-//     }
-
-//     // When the number of words in the EPUB content is > to nb_words_per_yield (several yields)
-//     // On a simple and correct EPUB content that is: nb_words_per_yield < length < 2 * nb_words_per_yield",
-//     #[test]
-//     fn on_bigger_content_it_should_extract_in_2_yields() {
-//         let content = "<html><head><title>Non-extracted title</title></head><body><p>Test</p>Ok - how are you?</body></html>";
-//         let result_1 = "Test Ok - how";
-//         let result_2 = "are you?";
-
-//         let buf_reader = BufReader::new(content.as_bytes());
-//         let mut generator = extract_content_generator(buf_reader, Some(4));
-
-//         let extracted_content = match generator.as_mut().resume() {
-//             GeneratorState::Yielded(content) => content,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_content, result_1);
-
-//         let extracted_content = match generator.as_mut().resume() {
-//             GeneratorState::Yielded(content) => content,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_content, result_2);
-
-//         // Completes
-//         let extracted_result = match generator.as_mut().resume() {
-//             GeneratorState::Complete(result) => result,
-//             _ => panic!("Unexpected generator state"),
-//         };
-//         assert_eq!(extracted_result, Ok(()));
-//     }
-
-//     // When the number of words in the EPUB content is > to nb_words_per_yield (several yields)
-//     // On a more complex and correct EPUB content with: (x - 1) * nb_words_per_yield < number of words < x * nb_words_per_yield",
-//     #[test]
-//     fn on_much_bigger_complex_content_it_should_extract_in_several_yields() {
-//         // Arranges
-//         let expected_yielded_contents = vec![
-//             "It is nice to finally meet you.",
-//             "Would you like some coffee? I love",
-//             "coffee. I drink it every morning.",
-//             "!!!!!!!!",
-//             "Could you please pass me the sugar?",
-//         ];
-//         let expected_nb_yields = expected_yielded_contents.len();
-//         let content = format!(
-//             "<html><head><title>Test</title></head><body><p>{}</p></body></html>",
-//             expected_yielded_contents.join(" ")
-//         );
-
-//         let buf_reader = BufReader::new(content.as_bytes());
-//         let mut generator = extract_content_generator(buf_reader, Some(8));
-
-//         // Asserts each yield
-//         for i in 0..expected_nb_yields {
-//             let yielded_extracted_content = match generator.as_mut().resume() {
-//                 GeneratorState::Yielded(content) => content,
-//                 _ => panic!("Unexpected generator state"),
-//             };
-//             assert_eq!(yielded_extracted_content, expected_yielded_contents[i]);
-//         }
-//     }
-// }
+        assert_eq!(
+            extracted_content.metadata[SIMPLE_READER_META_KEY][source_metadata_key],
+            json!(source_metadata_value)
+        );
+    }
+}
 
 /// 65 control codes characters
 pub const UNWANTED_CHARS: [char; 65] = [

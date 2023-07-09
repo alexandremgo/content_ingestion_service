@@ -102,14 +102,14 @@ impl PdfReader {
             // UTF-8 is encoded on 1 to 4 bytes. Or only handle unicode scalar values (with char)
             // Unicode scalar values can be more than 1 byte
             self.current_content_chars = content.chars().collect();
-            self.update_meta(PDF_READER_META_KEY_PAGE, json!(self.current_page));
+            self.update_metadata(PDF_READER_META_KEY_PAGE, json!(self.current_page));
         }
 
         Ok(content_len)
     }
 
     /// Updates metadata as a JSON object
-    fn update_meta(&mut self, key: &str, value: JsonValue) {
+    fn update_metadata(&mut self, key: &str, value: JsonValue) {
         if let Some(map) = self.metadata.as_object_mut() {
             map.insert(key.to_owned(), value);
         } else {

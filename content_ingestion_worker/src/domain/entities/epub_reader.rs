@@ -31,6 +31,9 @@ pub struct EpubReader<SourceReader: Read + Seek> {
 
     // MetaRead
     metadata: JsonValue,
+
+    // Flag to avoid infinite read loop
+    is_read_completed: bool,
 }
 
 #[derive(thiserror::Error)]
@@ -56,6 +59,7 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
     /// # Params
     /// - reader: SourceReader implementing Read + Seek
     /// - initial_meta: (optional) initial metadata as a JSON object
+    #[tracing::instrument(name = "Creating EPUB reader", skip(reader))]
     pub fn from_reader(
         reader: SourceReader,
         initial_meta: Option<JsonValue>,
@@ -69,7 +73,7 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
             _ => json!({ EPUB_READER_META_KEY_DEFAULT_INITIAL: initial_meta }),
         };
 
-        info!("EPUB reader source: initial metadata: {}", metadata);
+        info!("Reader initial metadata: {}", metadata);
 
         Ok(EpubReader {
             source,
@@ -77,11 +81,12 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
             current_content_chars: vec![],
             current_char_index: 0,
             metadata,
+            is_read_completed: false,
         })
     }
 
     /// Updates metadata as a JSON object
-    fn update_meta(&mut self, key: &str, value: JsonValue) {
+    fn update_metadata(&mut self, key: &str, value: JsonValue) {
         if let Some(map) = self.metadata.as_object_mut() {
             map.insert(key.to_owned(), value);
         } else {
@@ -108,6 +113,7 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
             let (current_content, _cur_mime) = match self.source.get_current_str() {
                 None => {
                     // No more thing to read
+                    self.is_read_completed = true;
                     return Ok(0);
                 }
                 Some(result) => result,
@@ -115,8 +121,10 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
 
             // To avoid infinitely looping on the last content
             let current_content_id = self.source.get_current_id().unwrap_or("".to_string());
+
             if current_content_id.eq(&self.previous_content_id) {
                 debug!("Encountered the same content id: {}", current_content_id);
+                self.is_read_completed = true;
                 return Ok(0);
             }
 
@@ -128,7 +136,7 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
             }
 
             // To improve
-            self.update_meta(
+            self.update_metadata(
                 "chapter_path",
                 json!(self
                     .source
@@ -137,9 +145,9 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
                     .to_string_lossy()
                     .to_string()),
             );
-            self.update_meta("chapter_number", json!(self.source.get_current_page()));
-            self.update_meta("chapters_size", json!(self.source.get_num_pages()));
-            self.update_meta("chapter_id", json!(self.source.get_current_id()));
+            self.update_metadata("chapter_number", json!(self.source.get_current_page()));
+            self.update_metadata("chapters_size", json!(self.source.get_num_pages()));
+            self.update_metadata("chapter_id", json!(self.source.get_current_id()));
 
             // UTF-8 is encoded on 1 to 4 bytes. Or only handle unicode scalar values (with char)
             // Unicode scalar values can be more than 1 byte
@@ -153,6 +161,10 @@ impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
 impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
     // Version with Unicode scalar values
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.is_read_completed {
+            return Ok(0);
+        }
+
         // There is no more chars to read from the current content,
         // tries to get next content available from EPUB
         if self.current_char_index >= self.current_content_chars.len() {

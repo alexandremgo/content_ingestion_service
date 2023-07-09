@@ -43,6 +43,7 @@ pub struct XMLReader<SourceReader: Read + MetaRead> {
 }
 
 /// Builds a new XMLReader from a reader not implementing BufRead
+#[tracing::instrument(name = "Creating XML reader", skip(reader))]
 pub fn build_from_reader<SourceReader: Read + MetaRead>(
     reader: SourceReader,
 ) -> XMLReader<SourceReader> {
@@ -75,8 +76,9 @@ pub fn build_from_reader<SourceReader: Read + MetaRead>(
 
 impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
     /// Caches the content appearing inside the next XML tags
-    #[tracing::instrument(name = "Caching next XML content", skip(self))]
-    fn next_content(&mut self) -> Result<(), XMLReaderError> {
+    /// # Returns
+    /// The number of char read. 0 if no more content is available.
+    fn go_next_content(&mut self) -> Result<usize, XMLReaderError> {
         let mut buf: Vec<u8> = Vec::new();
 
         // Re-initializes current content variables
@@ -104,17 +106,17 @@ impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
                         debug!("Found <title>");
                         self.current_inside_title += 1;
                     }
-                    name => {
-                        // Idea: having a list of tags that define separate documents (like an opening <body>)
-                        // We could get the current <title> too ?
-                        self.update_meta(
-                            "tag",
-                            json!(std::str::from_utf8(name).unwrap_or_default()),
-                        );
+                    _name => {
+                        // Idea: having a list of tags that define separate documents (like a new <h1>)
+                        // self.update_metadata(
+                        //     "tag",
+                        //     json!(std::str::from_utf8(name).unwrap_or_default()),
+                        // );
                     }
                 },
                 Ok(Event::End(e)) => match e.name().as_ref() {
                     b"body" => self.current_inside_body -= 1,
+                    b"title" => self.current_inside_title -= 1,
                     _ => {
                         // On tag closing: always add a space, if there was no space just before.
                         if self.current_inside_body > 0 {
@@ -129,10 +131,13 @@ impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
                             .map(|element| char::from(element.to_owned()))
                             .collect();
 
-                        // Filters out empty content (happening after a tag is closed)
-                        if next_content.len() == 0
-                            || next_content.len() < 2 && next_content[0] == ' '
-                        {
+                        if next_content.len() == 0 {
+                            debug!("Content length = 0");
+                            return Ok(0);
+                        }
+
+                        // Filters out 1-space-content (happening after a tag is closed)
+                        if next_content.len() == 1 && next_content[0] == ' ' {
                             continue;
                         }
 
@@ -143,8 +148,7 @@ impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
                     // Normally we can't be inside a <title> and <body>
                     else if self.current_inside_title > 0 {
                         let title = e.unescape().unwrap_or_default().to_string();
-
-                        self.update_meta(XML_READER_META_KEY_TITLE, json!(title));
+                        self.update_metadata(XML_READER_META_KEY_TITLE, json!(title));
                     }
                 }
 
@@ -155,11 +159,11 @@ impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
             buf.clear();
         }
 
-        Ok(())
+        Ok(self.current_content_chars.len())
     }
 
     /// Updates metadata as a JSON object
-    fn update_meta(&mut self, key: &str, value: JsonValue) {
+    fn update_metadata(&mut self, key: &str, value: JsonValue) {
         if let Some(map) = self.metadata.as_object_mut() {
             map.insert(key.to_owned(), value);
         } else {
@@ -175,12 +179,16 @@ impl<SourceReader: Read + MetaRead> Read for XMLReader<SourceReader> {
         // There is no more chars to read from the current content,
         // tries to get next content available from EPUB
         if self.current_char_index >= self.current_content_chars.len() {
-            self.next_content().map_err(|err| {
+            let read_chars_len = self.go_next_content().map_err(|err| {
                 std::io::Error::new(
                     ErrorKind::InvalidData,
                     format!("Error while caching next XML content: {}", err),
                 )
             })?;
+
+            if read_chars_len == 0 {
+                return Ok(0);
+            }
         }
 
         // Fills up the read buffer from the current content
@@ -234,6 +242,9 @@ impl<SourceReader: Read + MetaRead> MetaRead for XMLReader<SourceReader> {
 #[cfg(test)]
 mod xml_reader_tests {
     use super::*;
+    use crate::domain::entities::simple_metadata_reader::{
+        SimpleMetadataReader, SIMPLE_READER_META_KEY,
+    };
     use fake::{faker::lorem::en::Sentences, Fake};
 
     // ----- Tests on content reader -----
@@ -241,7 +252,7 @@ mod xml_reader_tests {
     #[test]
     fn on_empty_input_it_should_read_an_empty_content() {
         let content = "";
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
 
         let mut extracted_content = String::new();
@@ -268,7 +279,7 @@ mod xml_reader_tests {
     #[test]
     fn on_simple_xml_content_it_should_read_the_body_content() {
         let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
 
         let mut extracted_content = String::new();
@@ -300,7 +311,7 @@ mod xml_reader_tests {
         <p>Test</p>
     </body>
     </html>";
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
 
         let mut extracted_content = String::new();
@@ -342,7 +353,7 @@ mod xml_reader_tests {
             tagged_content.join("")
         );
 
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
         // Acts
         let mut extracted_content = String::new();
@@ -390,7 +401,7 @@ mod xml_reader_tests {
             tagged_content.join("")
         );
 
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
@@ -430,7 +441,7 @@ mod xml_reader_tests {
             tagged_content.join("")
         );
 
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
@@ -470,7 +481,7 @@ mod xml_reader_tests {
             tagged_content.join("")
         );
 
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_reader = SimpleMetadataReader::new(content.as_bytes(), None);
         let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
@@ -506,7 +517,7 @@ mod xml_reader_tests {
     // Only test on `title` meta
 
     #[test]
-    fn on_several_body_and_title_sections_it_should_update_meta_info_correctly_and_propagate_source_meta(
+    fn on_several_body_and_title_sections_it_should_update_metadata_info_correctly_and_propagate_source_meta(
     ) {
         // Arranges
         let titles: Vec<String> = Sentences(2..3).fake();
@@ -526,7 +537,13 @@ mod xml_reader_tests {
             .collect();
         let content = format!("<html>{}</html>", tagged_content.join(""));
 
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
+        let source_metadata_key = "test_key";
+        let source_metadata_value = "a value";
+
+        let source_reader = SimpleMetadataReader::new(
+            content.as_bytes(),
+            Some(json!({ source_metadata_key: source_metadata_value })),
+        );
         let mut xml_reader = build_from_reader(source_reader);
 
         // Acts
@@ -552,9 +569,9 @@ mod xml_reader_tests {
 
                         // Asserts on the propagated meta (from source reader)
                         assert_eq!(
-                            json!(SIMPLE_READER_META_VALUE_EX),
+                            json!(source_metadata_value),
                             xml_reader.get_current_metadata()[SIMPLE_READER_META_KEY]
-                                [SIMPLE_READER_META_KEY_EX]
+                                [source_metadata_key]
                         );
                     }
 
@@ -564,71 +581,6 @@ mod xml_reader_tests {
                     panic!("An error occurred: {:?}", error);
                 }
             };
-        }
-    }
-
-    // It should propagate source meta too - what happens if empty
-    #[test]
-    fn on_source_with_no_meta_it_should_create_metadata_as_json_object() {
-        let content = "<html><head><title>Test</title></head><body><p>Test</p></body></html>";
-        let source_reader = SimpleMetaReader::new(content.as_bytes());
-        let mut xml_reader = build_from_reader(source_reader);
-
-        let mut extracted_content = String::new();
-        loop {
-            let mut buf = [0; 100];
-            match xml_reader.read(&mut buf) {
-                Ok(read_len) => {
-                    if read_len == 0 {
-                        break;
-                    }
-                    let read_content = String::from_utf8(buf[0..read_len].to_vec()).unwrap();
-                    extracted_content.push_str(&read_content);
-                }
-                Err(error) => {
-                    panic!("An error occurred: {:?}", error);
-                }
-            };
-        }
-
-        assert_eq!(extracted_content, "Test ");
-    }
-
-    const SIMPLE_READER_META_KEY: &str = "simple";
-    const SIMPLE_READER_META_KEY_EX: &str = "a key";
-    const SIMPLE_READER_META_VALUE_EX: &str = "SimpleReader fake meta";
-
-    // Help struct to have a reader implementing MetaRead
-    struct SimpleMetaReader<Reader: Read> {
-        reader: Reader,
-        meta: JsonValue,
-    }
-
-    impl<Reader: Read> SimpleMetaReader<Reader> {
-        pub fn new(reader: Reader) -> Self {
-            Self {
-                reader,
-                meta: json!({ SIMPLE_READER_META_KEY: { SIMPLE_READER_META_KEY_EX: SIMPLE_READER_META_VALUE_EX} }),
-            }
-        }
-
-        pub fn new_without_meta(reader: Reader) -> Self {
-            Self {
-                reader,
-                meta: JsonValue::Null,
-            }
-        }
-    }
-
-    impl<Reader: Read> MetaRead for SimpleMetaReader<Reader> {
-        fn get_current_metadata(&self) -> JsonValue {
-            self.meta.clone()
-        }
-    }
-
-    impl<Reader: Read> Read for SimpleMetaReader<Reader> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.reader.read(buf)
         }
     }
 }
