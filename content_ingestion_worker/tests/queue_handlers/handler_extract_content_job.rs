@@ -32,7 +32,9 @@ async fn handler_acknowledges_extract_content_job_when_correct() {
     };
 
     // Adding the associated fake file to the S3 bucket
-    app.save_content_to_s3_bucket("test content", &job.object_store_path_name)
+    let file_name = "sample_3_chapters.epub";
+    let file_path_name = format!("tests/resources/{}", file_name);
+    app.save_file_to_s3_bucket(&file_path_name, &job.object_store_path_name)
         .await
         .unwrap();
 

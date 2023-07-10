@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use content_ingestion_worker::{
     configuration::get_configuration,
     handlers::example::MyData,
@@ -192,6 +194,7 @@ impl TestApp {
         (total_delivered, nb_ack)
     }
 
+    /// Helper function to save a str as an object in the S3 bucket
     pub async fn save_content_to_s3_bucket(
         &self,
         content: &str,
@@ -211,6 +214,35 @@ impl TestApp {
 
         Ok(())
     }
+
+    /// Helper function to save a `File` in the S3 bucket
+    ///
+    /// # Params
+    /// - `file_path_name`: The local path of the file to save
+    /// - `object_path_name`: The path of the object in the S3 bucket
+    pub async fn save_file_to_s3_bucket(
+        &self,
+        file_path_name: &str,
+        object_path_name: &str,
+    ) -> Result<(), String> {
+        let mut file = std::fs::File::open(file_path_name).unwrap();
+        let mut buf = Vec::<u8>::new();
+        file.read_to_end(&mut buf)
+            .map_err(|err| format!("Could not read file {}: {}", object_path_name, err))?;
+
+        self.s3_bucket
+            .put_object(object_path_name.clone(), buf.as_slice())
+            .await
+            .map_err(|err| {
+                format!(
+                    "S3 failed to add file as an object in {}: {}",
+                    object_path_name, err
+                )
+            })?;
+
+        Ok(())
+    }
+
     /// Shutdowns the test suite by sending a cancel signal to every registered spawned tasks (the RabbitMQ client/worker app)
     ///
     /// It was needed because the spawned RabbitMQ client/worker app was not shutting down correctly after each test
