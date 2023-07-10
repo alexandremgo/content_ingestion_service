@@ -19,7 +19,8 @@ const EPUB_READER_META_KEY_DEFAULT_INITIAL: &str = "initial";
 ///
 /// [Seek](https://doc.rust-lang.org/stable/std/io/trait.Seek.html) implementation is needed
 ///
-/// As we cannot get a reference to the inner reader of `EpubDoc`, we cannot currently compose with a `SourceReader` implementing `MetaRead`
+/// As we cannot get a reference to the inner reader of `EpubDoc`,
+/// we cannot currently compose with a `SourceReader` implementing `MetaRead`
 pub struct EpubReader<SourceReader: Read + Seek> {
     source: EpubDoc<SourceReader>,
 
@@ -54,10 +55,10 @@ pub enum NextContentError {
 }
 
 impl<SourceReader: Read + Seek> EpubReader<SourceReader> {
-    /// Create an EpubReader from a source reader (implementing Read + Seek)
+    /// Create an `EpubReader` from a source reader (implementing Read + Seek)
     ///
     /// # Params
-    /// - reader: SourceReader implementing Read + Seek
+    /// - reader: `SourceReader` implementing `Read + Seek`
     /// - initial_meta: (optional) initial metadata as a JSON object
     #[tracing::instrument(name = "Creating EPUB reader", skip(reader))]
     pub fn from_reader(
@@ -224,38 +225,38 @@ mod epub_reader_tests {
     use super::*;
 
     #[test]
-    fn on_correct_epub_it_creates_a_content_reader() {
-        let file =
-            std::fs::File::open(String::from("tests/resources/accessible_epub_3.epub")).unwrap();
+    fn on_correct_epub_it_creates_a_content_reader_with_metadata() {
+        let file_name = "sample_3_chapters.epub";
+        let file = std::fs::File::open(format!("tests/resources/{}", file_name)).unwrap();
         let file_reader = BufReader::new(file);
 
-        let mut source_buffer = EpubReader::from_reader(
-            file_reader,
-            Some(json!({ "book_title": "accessible_epub_3" })),
-        )
-        .unwrap();
+        let mut source_buffer =
+            EpubReader::from_reader(file_reader, Some(json!({ "file": file_name }))).unwrap();
 
-        // let mut source_buffer = EpubReader::try_new(String::from("src/tests/minimal_sample.epub")).unwrap();
-
-        println!("EPUB READER 🔮🔮🔮🔮🔮🔮🔮 Let's go");
-
-        // TODO: will need another watchdog so we don't run infinitely if there is a loop
-        // for _i in 0..1000000 {
-        loop {
+        let mut i = 0;
+        // Arbitrary limit to avoid infinite loop during tests
+        while i < 100 {
+            // Buf big enough to contain every chapter
             let mut buf = [0; 8000];
             match source_buffer.read(&mut buf) {
                 Ok(filling_len) => {
-                    println!("Filled with {} bytes", filling_len);
                     if filling_len == 0 {
-                        println!("NO MORE TO READ");
                         break;
                     }
-                    println!(
-                        "Content: meta: {}\n {}\n-----\n",
-                        source_buffer.get_current_metadata(),
-                        // filling_len,
-                        String::from_utf8(buf[0..filling_len].to_vec()).unwrap()
-                    );
+
+                    i += 1;
+                    let read_content = String::from_utf8(buf[0..filling_len].to_vec()).unwrap();
+                    let metadata = source_buffer.get_current_metadata();
+
+                    // Asserts content
+                    assert!(read_content.contains("<body>"));
+                    assert!(read_content.contains(&format!("<h1>Chapter {i}</h1>")));
+                    assert!(read_content.contains(&format!("<p>Some text in chapter {i}</p>")));
+                    assert!(read_content.contains(&format!("<p>More text in chapter {i}</p>")));
+
+                    // Asserts metadata
+                    assert_eq!(metadata[EPUB_READER_META_KEY]["chapter_number"], i);
+                    assert_eq!(metadata[EPUB_READER_META_KEY]["file"], file_name);
                 }
                 Err(error) => {
                     panic!("An error occurred: {:?}", error);
@@ -263,7 +264,7 @@ mod epub_reader_tests {
             };
         }
 
-        println!("🔮🔮🔮🔮🔮🔮🔮 THE END");
-        assert_eq!(1, 1);
+        // Only 3 chapters in the sample
+        assert_eq!(i, 3);
     }
 }
