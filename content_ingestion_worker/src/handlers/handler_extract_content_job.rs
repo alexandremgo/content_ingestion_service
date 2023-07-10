@@ -1,4 +1,7 @@
-use std::{io::BufReader, sync::Arc};
+use std::{
+    io::{BufReader, Cursor},
+    sync::Arc,
+};
 
 use lapin::{
     message::DeliveryResult,
@@ -6,12 +9,13 @@ use lapin::{
     types::FieldTable,
     Channel,
 };
+use serde_json::json;
 use tracing::{debug, error, info, info_span, Instrument};
 
 use crate::{
     domain::{
-        entities::extract_content_job::ExtractContentJob,
-        services::extract_content_from_xml::extract_content_from_xml,
+        entities::{epub_reader::EpubReader, extract_content_job::ExtractContentJob, xml_reader},
+        services::extract_content_generator::extract_content_generator,
     },
     helper::error_chain_fmt,
     repositories::{
@@ -164,15 +168,20 @@ pub async fn execute_handler(
     // and not put it into memory. Or stream saving the content in a temp file, and
     // access the content with a BufReader.
     let file_content = s3_repository.get_file(object_store_path_name).await?;
-    let buf_reader = BufReader::new(file_content.as_slice());
 
-    debug!(
-        "File content of {} from S3: {}",
-        object_store_path_name,
-        std::str::from_utf8(file_content.as_slice()).unwrap()
-    );
+    // In-memory file-like object/reader implementing `Seek`.
+    // Note: for EPUB (or any format needing a `Seek` impl), we will always need to load the file in-memory ?)
+    // TODO: should we wrap it in a `BufReader` ?
+    // let file_reader = BufReader::new(file_content.as_slice());
+    let file_reader = Cursor::new(file_content);
 
-    let generator = extract_content_from_xml(buf_reader, Some(100));
+    let epub_reader =
+        EpubReader::from_reader(file_reader, Some(json!({ "file": object_store_path_name })))
+            .unwrap();
+    let mut xml_reader = xml_reader::build_from_reader(epub_reader);
+
+    let nb_words_per_document = 100;
+    let mut _generator = extract_content_generator(&mut xml_reader, Some(nb_words_per_document));
 
     Ok(())
 }
