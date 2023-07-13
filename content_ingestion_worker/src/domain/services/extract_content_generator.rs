@@ -1,9 +1,16 @@
-use genawaiter::{rc::gen, yield_, Generator};
+use futures::Future;
+use genawaiter::{
+    sync::{gen, Gen},
+    yield_,
+};
 use serde_json::Value as JsonValue;
 use std::{io::Read, pin::Pin};
 use tracing::{debug, error};
 
-use crate::{domain::entities::{meta_read::MetaRead, extracted_content::ExtractedContent}, helper::error_chain_fmt};
+use crate::{
+    domain::entities::{extracted_content::ExtractedContent, meta_read::MetaRead},
+    helper::error_chain_fmt,
+};
 
 pub const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 
@@ -43,6 +50,7 @@ impl std::fmt::Debug for ExtractContentGeneratorError {
 ///
 /// # Returns
 /// A generator that progressively yields `ExtractedContent`s read from the reader.
+/// Using the `genawaiter::sync` implementation which allocates and can be shared between threads.
 /// The generator is wrapped in a Pin<Box<...>> because, like Future, a Generator can hold a reference into another field of
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
@@ -53,8 +61,11 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
     nb_words_per_yield: Option<usize>,
 ) -> Pin<
     Box<
-        dyn Generator<Yield = ExtractedContent, Return = Result<(), ExtractContentGeneratorError>>
-            + 'box_lt,
+        Gen<
+            ExtractedContent,
+            (),
+            impl Future<Output = Result<(), ExtractContentGeneratorError>> + 'box_lt,
+        >,
     >,
 > {
     let nb_words_per_yield = nb_words_per_yield.unwrap_or(DEFAULT_NB_WORDS_PER_YIELD);
@@ -84,10 +95,10 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                         );
 
                         if current_nb_words > 0 {
-                            yield_!(ExtractedContent {
-                                content: current_extracted_content,
-                                metadata: previous_metadata.clone()
-                            });
+                            yield_!(ExtractedContent::new(
+                                current_extracted_content,
+                                previous_metadata.clone()
+                            ));
 
                             // Resets
                             current_nb_words = 0;
@@ -166,10 +177,10 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                                 current_nb_words
                             );
 
-                            yield_!(ExtractedContent {
-                                content: current_extracted_content,
-                                metadata: previous_metadata.clone()
-                            });
+                            yield_!(ExtractedContent::new(
+                                current_extracted_content,
+                                previous_metadata.clone()
+                            ));
 
                             // Resets
                             current_nb_words = 0;
@@ -197,10 +208,10 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
             current_extracted_content.pop();
         }
 
-        yield_!(ExtractedContent {
-            content: current_extracted_content,
-            metadata: previous_metadata
-        });
+        yield_!(ExtractedContent::new(
+            current_extracted_content,
+            previous_metadata
+        ));
 
         Ok(())
     });
@@ -209,6 +220,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
     // and pin the generator to a particular spot in the heap memory.
     // The signature of rc::Generator resume is:
     // fn resume(self: Pin<&mut Self>) -> GeneratorState<Self::Yield, Self::Return>
+    // TODO: using sync::Generator now
     Box::pin(generator)
 }
 
