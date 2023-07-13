@@ -38,6 +38,18 @@ export OBJECT_STORAGE_ADMIN_PORT="${MINIO_ADMIN_PORT:=9001}"
 export OBJECT_STORAGE_SITE_REGION="${MINIO_SITE_REGION:=eu-fr-1}"
 export OBJECT_STORAGE_SITE_NAME="${MINIO_SITE_NAME:=par-rack-1}"
 
+# RabbitMQ env variables:
+export RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:=guest}
+export RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:=guest}
+
+# Meilisearch env variables
+export MEILI_PORT=${MEILI_PORT:=7700}
+export MEILI_MASTER_KEY=${MEILI_MASTER_KEY:=masterkey}
+export MEILI_NO_ANALYTICS=${MEILI_NO_ANALYTICS:=true}
+# Not scalable if several Meilisearch indexes. We might create "migration" using an empty dump file.
+export MEILI_EXTRACTED_CONTENT_INDEX="extracted_contents"
+export MEILI_EXTRACTED_CONTENT_PRIMARY_KEY="id"
+
 # Allow to skip Docker if a containers are already running
 if [[ -z "${SKIP_DOCKER}" ]]
 then
@@ -57,6 +69,22 @@ then
   >&2 echo "🚚 Containers are up"
 fi
 
+
+# Keeps pinging Meilisearch until it's ready to accept commands
+until curl -X GET "http://localhost:${MEILI_PORT}" -H 'Content-Type: application/json' -H "Authorization: Bearer ${MEILI_MASTER_KEY}" >/dev/null 2>&1; do
+  >&2 echo "🛌 Meilisearch is still unavailable - sleeping"
+  sleep 1
+done
+
+# Sets up the Meilisearch indexes
+echo "🛠️ Setting up the Meilisearch indexes"
+
+# Creates the Meilisearch indexes
+curl -X POST "http://localhost:${MEILI_PORT}/indexes" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer masterkey' \
+  --data-binary "{ \"uid\": \"${MEILI_EXTRACTED_CONTENT_INDEX}\", \"primaryKey\": \"${MEILI_EXTRACTED_CONTENT_PRIMARY_KEY}\" }"
+
 # Keeps pinging Postgres until it's ready to accept commands
 export PGPASSWORD="${DB_PASSWORD}"
 until psql -h "localhost" -U "${DB_USER}" -p "${DB_PORT}" -d "postgres" -c '\q'; do
@@ -64,11 +92,11 @@ until psql -h "localhost" -U "${DB_USER}" -p "${DB_PORT}" -d "postgres" -c '\q';
   sleep 1
 done
 
->&2 echo "🎉 Postgres is up and running on port ${DB_PORT}!"
+echo "🎉 Postgres is up and running on port ${DB_PORT}!"
 
 # Necessary to work with sqlx cli and sqlx compile-time verification
 export DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}
 sqlx database create
 
 sqlx migrate run
->&2 echo "🏭 Postgres has been migrated, ready to go!"
+echo "🏭 Postgres has been migrated, ready to go!"

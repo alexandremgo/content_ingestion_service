@@ -1,5 +1,6 @@
 services:
   minio:
+    image: quay.io/minio/minio:latest
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
@@ -9,7 +10,6 @@ services:
       - MINIO_ROOT_PASSWORD=${OBJECT_STORAGE_PASSWORD}
       - MINIO_SITE_REGION=${OBJECT_STORAGE_SITE_REGION}
       - MINIO_SITE_NAME=${OBJECT_STORAGE_SITE_NAME}
-    image: quay.io/minio/minio:latest
     ports:
       - "${OBJECT_STORAGE_PORT}:9000"
       - "${OBJECT_STORAGE_ADMIN_PORT}:9001"
@@ -18,8 +18,8 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    container_name: rabbitmq
     image: rabbitmq:3.12.0-management
+    container_name: rabbitmq
     ports:
       - '5672:5672'
       - '15672:15672'
@@ -30,6 +30,7 @@ services:
 
   postgres:
     image: postgres
+    container_name: postgres
     restart: always
     ports:
       - "${DB_PORT}:5432"
@@ -38,6 +39,18 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
       - POSTGRES_MAX_CONNECTIONS=1000
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.2.0
+    container_name: meilisearch
+    ports:
+      - '7700:7700'
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_NO_ANALYTICS=${MEILI_NO_ANALYTICS}
+    volumes:
+      - ./data.ms:/data.ms
+    restart: unless-stopped
 
 volumes:
   object-storage:

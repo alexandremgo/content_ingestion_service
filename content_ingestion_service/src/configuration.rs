@@ -13,6 +13,7 @@ pub struct Settings {
     pub database: DatabaseSettings,
     pub object_storage: ObjectStorageSettings,
     pub rabbitmq: RabbitMQSettings,
+    pub meilisearch: MeilisearchSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -99,6 +100,15 @@ impl RabbitMQSettings {
             .with_executor(tokio_executor_trait::Tokio::current())
             .with_reactor(tokio_reactor_trait::Tokio)
     }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MeilisearchSettings {
+    pub api_key: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub host: String,
+    pub extracted_content_index: String,
 }
 
 /// Extracts app settings from configuration files and env variables
