@@ -219,7 +219,7 @@ impl<SourceReader: Read + Seek> MetaRead for EpubReader<SourceReader> {
 }
 
 #[cfg(test)]
-mod epub_reader_tests {
+mod tests {
     use std::io::BufReader;
 
     use super::*;

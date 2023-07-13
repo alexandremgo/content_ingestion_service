@@ -176,7 +176,7 @@ impl MetaRead for PdfReader {
 }
 
 #[cfg(test)]
-mod pdf_reader_tests {
+mod tests {
     use std::io::BufReader;
 
     use super::*;

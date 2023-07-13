@@ -11,7 +11,7 @@ use content_ingestion_worker::domain::services::extract_content_generator::extra
 use crate::helpers::init_test;
 
 #[test]
-fn on_correct_epub_it_should_be_able_to_extract_expected_documents() {
+fn on_correct_epub_it_should_be_able_to_extract_expected_contents() {
     init_test();
 
     let file_name = "minimal_sample.epub";
@@ -22,8 +22,8 @@ fn on_correct_epub_it_should_be_able_to_extract_expected_documents() {
         EpubReader::from_reader(file_reader, Some(json!({ "book": file_name }))).unwrap();
     let mut xml_reader = xml_reader::build_from_reader(epub_reader);
 
-    let nb_words_per_document = 100;
-    let mut generator = extract_content_generator(&mut xml_reader, Some(nb_words_per_document));
+    let nb_words_per_content = 100;
+    let mut generator = extract_content_generator(&mut xml_reader, Some(nb_words_per_content));
 
     let mut is_extraction_completed = false;
 
@@ -41,7 +41,7 @@ fn on_correct_epub_it_should_be_able_to_extract_expected_documents() {
     let mut i = 0;
 
     // Limits to avoid infinite loop during tests
-    // It should never reach 1000 documents in this test.
+    // It should never reach 1000 extracted contents in this test.
     while i < 1000 {
         let extracted_content = match generator.as_mut().resume() {
             GeneratorState::Yielded(content) => content,
@@ -51,7 +51,7 @@ fn on_correct_epub_it_should_be_able_to_extract_expected_documents() {
             }
         };
 
-        // On this integrations tests, we are not currently checking every documents as the readers implementation might still change.
+        // On this integrations tests, we are not currently checking every extracted content as the readers implementation might still change.
         // Writes on a result file to be able to check it later.
         if let Err(e) = writeln!(
             file,

@@ -3,7 +3,7 @@ use serde_json::Value as JsonValue;
 use std::{io::Read, pin::Pin};
 use tracing::{debug, error};
 
-use crate::{domain::entities::meta_read::MetaRead, helper::error_chain_fmt};
+use crate::{domain::entities::{meta_read::MetaRead, extracted_content::ExtractedContent}, helper::error_chain_fmt};
 
 pub const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 
@@ -15,11 +15,6 @@ enum CharState {
     Space,
     SpecialForCountingWords(char),
     Normal(char),
-}
-
-pub struct Document {
-    pub metadata: JsonValue,
-    pub content: String,
 }
 
 #[derive(thiserror::Error)]
@@ -36,29 +31,29 @@ impl std::fmt::Debug for ExtractContentGeneratorError {
     }
 }
 
-/// Extracts documents from a reader
+/// Extracts contents from a reader
 ///
-/// A document is defined as a content limited by a certain number of words and metadata associated to it.
-/// See `Document` struct.
+/// An "extracted content" is defined as a content limited by a certain number of words and metadata associated to it.
+/// See `ExtractedContent` struct.
 ///
 /// # Arguments
 /// * `reader`: reader from which the content is read from
-/// * `nb_words_per_yield`: limit number of words triggering a new yield (length of a document).
+/// * `nb_words_per_yield`: limit number of words triggering a new yield (length of an extracted content).
 ///      Default to `DEFAULT_NB_WORDS_PER_YIELD`.
 ///
 /// # Returns
-/// A generator that progressively yields `Document`s read from the reader.
+/// A generator that progressively yields `ExtractedContent`s read from the reader.
 /// The generator is wrapped in a Pin<Box<...>> because, like Future, a Generator can hold a reference into another field of
 /// the same struct (becoming a self-referential type). If the Generator is moved, then the reference is incorrect.
 /// Pinning the generator to a particular spot in memory prevents this problem, making it safe to create references
 /// to values inside the generator block.
-#[tracing::instrument(name = "Extracting documents from a reader", skip(reader))]
+#[tracing::instrument(name = "Extracting contents from a reader", skip(reader))]
 pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>(
     reader: &'box_lt mut ReaderType,
     nb_words_per_yield: Option<usize>,
 ) -> Pin<
     Box<
-        dyn Generator<Yield = Document, Return = Result<(), ExtractContentGeneratorError>>
+        dyn Generator<Yield = ExtractedContent, Return = Result<(), ExtractContentGeneratorError>>
             + 'box_lt,
     >,
 > {
@@ -81,7 +76,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
                     let metadata = reader.get_current_metadata();
 
-                    // Separates document by meta
+                    // Separates extracted content by meta
                     if metadata != previous_metadata {
                         debug!(
                             "Metadata changed: previous: {} | new: {}",
@@ -89,7 +84,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
                         );
 
                         if current_nb_words > 0 {
-                            yield_!(Document {
+                            yield_!(ExtractedContent {
                                 content: current_extracted_content,
                                 metadata: previous_metadata.clone()
                             });
@@ -167,11 +162,11 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
                         if current_nb_words >= nb_words_per_yield {
                             debug!(
-                                "Reached nb_words_per_yield current document: {}",
+                                "Reached nb_words_per_yield current extracted content: {}",
                                 current_nb_words
                             );
 
-                            yield_!(Document {
+                            yield_!(ExtractedContent {
                                 content: current_extracted_content,
                                 metadata: previous_metadata.clone()
                             });
@@ -202,7 +197,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
             current_extracted_content.pop();
         }
 
-        yield_!(Document {
+        yield_!(ExtractedContent {
             content: current_extracted_content,
             metadata: previous_metadata
         });
@@ -218,7 +213,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 }
 
 #[cfg(test)]
-mod extract_content_generator_tests {
+mod tests {
     use crate::domain::entities::simple_metadata_reader::{
         SimpleMetadataReader, SIMPLE_READER_META_KEY,
     };

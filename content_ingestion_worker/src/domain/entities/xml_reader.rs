@@ -240,7 +240,7 @@ impl<SourceReader: Read + MetaRead> MetaRead for XMLReader<SourceReader> {
 }
 
 #[cfg(test)]
-mod xml_reader_tests {
+mod tests {
     use super::*;
     use crate::domain::entities::simple_metadata_reader::{
         SimpleMetadataReader, SIMPLE_READER_META_KEY,
