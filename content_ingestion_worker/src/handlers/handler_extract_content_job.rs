@@ -12,11 +12,17 @@ use tracing::{debug, error, info, info_span, Instrument};
 
 use crate::{
     domain::{
-        entities::{epub_reader::EpubReader, extract_content_job::ExtractContentJob, xml_reader},
+        entities::{
+            epub_reader::EpubReader, extract_content_job::ExtractContentJob,
+            extracted_content::ExtractedContent, xml_reader,
+        },
         services::extract_content_generator::extract_content_generator,
     },
     helper::error_chain_fmt,
     repositories::{
+        extracted_content_meilisearch_repository::{
+            self, ExtractedContentMeilisearchRepository, ExtractedContentMeilisearchRepositoryError,
+        },
         message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
         source_file_s3_repository::{S3Repository, S3RepositoryError},
     },
@@ -34,11 +40,15 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
     }
 }
 
-#[tracing::instrument(name = "Register queue handler", skip(channel, s3_repository))]
+#[tracing::instrument(
+    name = "Register queue handler",
+    skip(channel, s3_repository, extracted_content_meilisearch_repository)
+)]
 pub async fn register_handler(
     channel: &Channel,
     queue_name_prefix: &str,
     s3_repository: Arc<S3Repository>,
+    extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
 ) -> Result<(), RegisterHandlerExtractContentJobError> {
     let queue_name = format!("{}_{}", queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE);
 
@@ -64,6 +74,8 @@ pub async fn register_handler(
     // Sets handler on parsed message
     consumer.set_delegate(move |delivery: DeliveryResult| {
         let s3_repository = s3_repository.clone();
+        let extracted_content_meilisearch_repository =
+            extracted_content_meilisearch_repository.clone();
 
         async move {
             let delivery = match delivery {
@@ -91,7 +103,13 @@ pub async fn register_handler(
 
             info!("Received extract content job: {:?}\n", extract_content_job);
 
-            match execute_handler(&extract_content_job, s3_repository).await {
+            match execute_handler(
+                s3_repository,
+                extracted_content_meilisearch_repository,
+                &extract_content_job,
+            )
+            .await
+            {
                 Ok(()) => {
                     info!(
                         "Acknowledging message with delivery tag {}",
@@ -144,6 +162,8 @@ pub async fn register_handler(
 pub enum ExecuteHandlerExtractContentJobError {
     #[error(transparent)]
     S3RepositoryError(#[from] S3RepositoryError),
+    #[error(transparent)]
+    ExtractedContentMeilisearchRepositoryError(#[from] ExtractedContentMeilisearchRepositoryError),
 }
 
 impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
@@ -152,10 +172,14 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
     }
 }
 
-#[tracing::instrument(name = "Executing handler on extract content job", skip(s3_repository))]
+#[tracing::instrument(
+    name = "Executing handler on extract content job",
+    skip(s3_repository, extracted_content_meilisearch_repository)
+)]
 pub async fn execute_handler(
-    job: &ExtractContentJob,
     s3_repository: Arc<S3Repository>,
+    extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
+    job: &ExtractContentJob,
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
     let ExtractContentJob {
         object_store_path_name,
@@ -186,6 +210,7 @@ pub async fn execute_handler(
     // It should never reach 1000 extracted contents in this test.
     while i < 1000 {
         let extracted_content = match generator.as_mut().resume() {
+            // .as_mut().resume() {
             GeneratorState::Yielded(content) => content,
             GeneratorState::Complete(_result) => {
                 break;
@@ -196,6 +221,11 @@ pub async fn execute_handler(
             "Extracted content {i}: {}\n{}\n-----\n",
             extracted_content.metadata, extracted_content.content
         );
+
+        // We could decide to continue if we persist the extracted content in more than 1 service.
+        extracted_content_meilisearch_repository
+            .save(&extracted_content)
+            .await?;
 
         i += 1;
     }

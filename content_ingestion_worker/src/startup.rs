@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
 use crate::{
-    configuration::{ObjectStorageSettings, RabbitMQSettings, Settings},
+    configuration::{MeilisearchSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
     handlers::handler_extract_content_job::{self, RegisterHandlerExtractContentJobError},
-    repositories::source_file_s3_repository::S3Repository,
+    repositories::{
+        extracted_content_meilisearch_repository::ExtractedContentMeilisearchRepository,
+        source_file_s3_repository::S3Repository,
+    },
 };
 use lapin::{Channel, Connection};
+use meilisearch_sdk::Client as MeilisearchClient;
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use tokio_util::sync::CancellationToken;
@@ -13,14 +17,18 @@ use tracing::{error, info};
 
 /// Holds the newly built RabbitMQ connection and any server/useful properties
 pub struct Application {
+    // RabbitMQ
     rabbitmq_connection: Connection,
     rabbitmq_queue_name_prefix: String,
 
     // S3
     // Used for integration tests
     s3_bucket: Bucket,
-
+    // TODO: like the meilisearch repo: do we need it here ? Or pass it directly to registered handlers ?
     s3_repository: Arc<S3Repository>,
+
+    // Meilisearch
+    meilisearch_client: MeilisearchClient,
 }
 
 impl Application {
@@ -33,14 +41,24 @@ impl Application {
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let s3_repository = Arc::new(s3_repository);
 
+        let meilisearch_client = get_meilisearch_client(&settings.meilisearch);
+        let extracted_content_meilisearch_repository = ExtractedContentMeilisearchRepository::new(
+            meilisearch_client.clone(),
+            settings.meilisearch.extracted_content_index,
+        );
+        let extracted_content_meilisearch_repository =
+            Arc::new(extracted_content_meilisearch_repository);
+
         let app = Self {
             rabbitmq_connection,
             rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
             s3_bucket,
             s3_repository,
+            meilisearch_client,
         };
 
-        app.registers_message_handlers().await?;
+        app.registers_message_handlers(extracted_content_meilisearch_repository)
+            .await?;
 
         Ok(app)
     }
@@ -78,14 +96,21 @@ impl Application {
     }
 
     /// Registers queue message handlers to start the worker
-    #[tracing::instrument(name = "Preparing to run the worker application", skip(self))]
-    pub async fn registers_message_handlers(&self) -> Result<(), ApplicationError> {
+    #[tracing::instrument(
+        name = "Preparing to run the worker application",
+        skip(self, extracted_content_meilisearch_repository)
+    )]
+    pub async fn registers_message_handlers(
+        &self,
+        extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
+    ) -> Result<(), ApplicationError> {
         let channel = self.create_rabbitmq_channel().await?;
 
         handler_extract_content_job::register_handler(
             &channel,
             &self.rabbitmq_queue_name_prefix,
             self.s3_repository.clone(),
+            extracted_content_meilisearch_repository.clone(),
         )
         .await?;
 
@@ -97,6 +122,7 @@ impl Application {
     }
 }
 
+/// Create a connection to RabbitMQ
 pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
 ) -> Result<lapin::Connection, lapin::Error> {
@@ -156,6 +182,11 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
         settings.bucket_name
     );
     Ok(bucket)
+}
+
+/// Set up a client to Meilisearch
+pub fn get_meilisearch_client(config: &MeilisearchSettings) -> MeilisearchClient {
+    MeilisearchClient::new(config.endpoint(), Some(config.api_key.expose_secret()))
 }
 
 #[derive(thiserror::Error, Debug)]
