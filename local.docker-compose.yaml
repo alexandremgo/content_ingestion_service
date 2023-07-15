@@ -1,0 +1,17 @@
+version: "3"
+
+services:
+  content_ingestion_service:
+    build: ./content_ingestion_service
+    ports:
+      - '4242:4242'
+
+  # content_ingestion_worker:
+  #   build: ./content_ingestion_worker
+  #   ports:
+  #     - '4243:4243'
+
+networks:
+  default:
+    name: content_service_network
+    external: true

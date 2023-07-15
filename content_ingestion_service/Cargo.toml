@@ -8,13 +8,11 @@ actix-web = "4.3.1"
 # To handle multipart/form-data request
 actix-multipart = "0.6.0"
 config = "0.13.3"
-demonstrate = "0.4.5"
 epub = "2.0.0"
 genawaiter = "0.99.1"
 log = "0.4.17"
 pretty_env_logger = "0.4.0"
 quick-xml = "0.28.1"
-macros = { path = "../macros" }
 lazy_static = "1.4.0"
 secrecy = { version = "0.8", features = ["serde"] }
 serde = { version = "1.0.163", features = ["derive"] }
@@ -55,10 +53,7 @@ features = [
 ]
 
 [dev-dependencies]
-# TODO: to remove for demonstrate ?
-speculate = "0.1"
 serial_test = "*"
 log = "0.4.17"
 pretty_env_logger = "0.4.0"
-memory_logger = { workspace = true }
 reqwest = { version = "0.11.18", features = ["multipart"] }

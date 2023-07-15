@@ -5,6 +5,13 @@ Services:
 - [RabbitMQ](https://kafka.apache.org/) for the message queue
 - [PostgreSQL](https://www.postgresql.org/) for the relational database
 
+# Configuration
+
+There are several environments depending on where/how you want to deploy the services and workers:
+- `develop`: not containerized, locally on your machine
+- `local`: containerized, locally on your machine
+- `production`: containerized, in production
+
 # Tests
 ## Integration tests
 ### Triggering integration tests with logs

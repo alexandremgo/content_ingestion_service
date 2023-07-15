@@ -1,6 +1,6 @@
 use crate::helpers::spawn_app;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn health_check_works() {
     let app = spawn_app().await;
 

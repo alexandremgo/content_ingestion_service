@@ -1,0 +1,29 @@
+{
+  "db": "PostgreSQL",
+  "628b2d30d08f565d8cd5c44ba9e2ecfd16d3f5c6b6a72c172a77dc2afb14fb6d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "epub"
+                ]
+              },
+              "name": "source_type"
+            }
+          },
+          "Text",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n    INSERT INTO source_meta (id, user_id, object_store_name, source_type, initial_name, added_at, extracted_at)\n    VALUES ($1, $2, $3, $4, $5, $6, NULL)\n            "
+  }
+}

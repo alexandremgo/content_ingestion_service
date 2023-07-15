@@ -70,7 +70,6 @@ impl Application {
         let port = listener.local_addr().unwrap().port();
 
         let s3_bucket = set_up_s3(&settings.object_storage).await?;
-
         let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
@@ -233,6 +232,7 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
     Ok(bucket)
 }
 
+#[tracing::instrument(name = "Create RabbitMQ connection")]
 pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
 ) -> Result<lapin::Connection, lapin::Error> {

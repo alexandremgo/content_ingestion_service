@@ -114,9 +114,9 @@ pub struct MeilisearchSettings {
 /// Extracts app settings from configuration files and env variables
 ///
 /// `base.yaml` should contain shared settings for all environments.
-/// A specific env file should be created for each environment: `local.yaml` and `production.yaml`
+/// A specific env file should be created for each environment: `develop.yaml`, `local.yaml` and `production.yaml`
 /// The environment is set with the env var `APP_ENVIRONMENT`.
-/// If `APP_ENVIRONMENT` is not set, `local.yaml` is the default.
+/// If `APP_ENVIRONMENT` is not set, `develop.yaml` is the default.
 ///
 /// Settings are also taken from environment variables: with a prefix of APP and '__' as separator
 /// For ex: `APP_APPLICATION__PORT=5001 would set `Settings.application.port`
@@ -125,9 +125,9 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
     let configuration_directory = base_path.join("configuration");
 
     // Detects the running environment.
-    // Default to `local` if unspecified.
+    // Default to `develop` if unspecified.
     let environment: Environment = std::env::var("APP_ENVIRONMENT")
-        .unwrap_or_else(|_| "local".into())
+        .unwrap_or_else(|_| "develop".into())
         .try_into()
         .expect("Failed to parse APP_ENVIRONMENT.");
     let environment_filename = format!("{}.yaml", environment.as_str());
@@ -152,6 +152,7 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
 
 /// The possible runtime environment for our application.
 pub enum Environment {
+    Develop,
     Local,
     Production,
 }
@@ -159,6 +160,7 @@ pub enum Environment {
 impl Environment {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Environment::Develop => "develop",
             Environment::Local => "local",
             Environment::Production => "production",
         }
@@ -170,10 +172,11 @@ impl TryFrom<String> for Environment {
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         match s.to_lowercase().as_str() {
+            "develop" => Ok(Self::Develop),
             "local" => Ok(Self::Local),
             "production" => Ok(Self::Production),
             other => Err(format!(
-                "{} is not a supported environment. Use either `local` or `production`.",
+                "{} is not a supported environment. Use either `develop`, `local` or `production`.",
                 other
             )),
         }

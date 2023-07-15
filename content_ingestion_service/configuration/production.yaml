@@ -5,7 +5,13 @@ database:
   require_ssl: true
 
 object_storage:
+  host: "minio"
   bucket_name: prod-bucket
 
 rabbitmq:
+  host: "rabbitmq"
   queue_name_prefix: prod
+
+meilisearch:
+  host: "meilisearch"
+  api_key: "masterkey"

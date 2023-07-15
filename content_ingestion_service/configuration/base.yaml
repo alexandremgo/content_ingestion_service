@@ -2,19 +2,20 @@ application:
   port: 4242
 
 database:
-  host: "127.0.0.1"
   port: 5432
   username: "postgres"
   password: "password"
   database_name: "content_ingestion"
 
 object_storage:
-  host: "127.0.0.1"
   port: 9000
   username: "minio"
   password: "password"
   region: "eu-fr-1"
 
 rabbitmq:
-  host: 127.0.0.1
   port: 5672
+
+meilisearch:
+  port: 7700
+  extracted_content_index: extracted_contents
