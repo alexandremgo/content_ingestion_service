@@ -65,6 +65,14 @@ then
     >&2 echo "🏗️ Containers were built successfully"
   fi
 
+  # Makes sure the shared network has been created
+  export DOCKER_NETWORK="content_service_network"
+  if docker network create ${DOCKER_NETWORK}; then
+    echo "🛜 The network ${DOCKER_NETWORK} was created"
+  else
+    echo "🛜 The network ${DOCKER_NETWORK} already exist"
+  fi
+
   docker-compose up -d
   >&2 echo "🚚 Containers are up"
 fi
