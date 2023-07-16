@@ -1,6 +1,10 @@
 name: Worker Tests
 
-on: [push, pull_request]
+on: 
+  push:
+    paths:
+    - "content_ingestion_worker/**"
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,15 +37,6 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v3
 
-      - name: Launching job only on current project changes
-        uses: dorny/paths-filter@v2
-        id: filter
-        with:
-          # Already set `content_ingestion_worker` as the `working-directory`
-          filters: |
-            content_ingestion_worker:
-              - './**'
-
       - name: Setup minio
         run: |
           docker run -d -p 9000:9000 --name minio \
@@ -68,3 +63,16 @@ jobs:
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test
+
+  # `cargo fmt` job
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Specific to dtolnay/rust-toolchain: Comma-separated string of additional components to install
+          components: rustfmt
+      - name: Enforce formatting
+        run: cargo fmt --check

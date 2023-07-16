@@ -1,6 +1,10 @@
 name: Service Tests
 
-on: [push, pull_request]
+on: 
+  push:
+    paths:
+    - "content_ingestion_service/**"
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,15 +46,6 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
-
-      - name: Launching job only on current project changes
-        uses: dorny/paths-filter@v2
-        id: filter
-        with:
-          # Already set `content_ingestion_service` as the `working-directory`
-          filters: |
-            content_ingestion_service:
-              - './**'
 
       - name: Setup minio
         run: |
@@ -100,3 +95,52 @@ jobs:
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test
+
+  # `cargo fmt` job
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Specific to dtolnay/rust-toolchain: Comma-separated string of additional components to install
+          components: rustfmt
+      - name: Enforce formatting
+        run: cargo fmt --check
+
+  # `cargo clippy` job
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sqlx-${{ env.SQLX_VERSION }}
+      - name: Install sqlx-cli
+        run:
+          cargo install sqlx-cli
+            --version=${{ env.SQLX_VERSION }}
+            --features ${{ env.SQLX_FEATURES }}
+            --no-default-features
+            --locked
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install postgresql-client -y
+      - name: Migrate database
+        run: SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
+      - name: Linting
+        working-directory: ./content_ingestion_service
+        run: cargo clippy --no-deps -- -D warnings
