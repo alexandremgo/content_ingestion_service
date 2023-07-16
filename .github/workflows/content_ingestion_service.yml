@@ -1,10 +1,10 @@
-name: Service Tests
+name: Service workflow
 
 on: 
   push:
     paths:
     - "content_ingestion_service/**"
-    - ".github/workflows/service_tests.yml"
+    - ".github/workflows/content_ingestion_service.yml"
   pull_request:
 
 env:

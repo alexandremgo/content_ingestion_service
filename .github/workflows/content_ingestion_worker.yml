@@ -1,9 +1,10 @@
-name: Worker Tests
+name: Worker workflow
 
 on: 
   push:
     paths:
     - "content_ingestion_worker/**"
+    - ".github/workflows/content_ingestion_worker.yml"
   pull_request:
 
 env:
