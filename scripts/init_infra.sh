@@ -4,6 +4,8 @@ set -x
 # that fails or returns a non-zero status (also inside a pipepine)
 set -eo pipefail
 
+echo "👷 Setting up the infrastructure needed for our services ... 🚧" 
+
 # Checks script dependencies
 if ! [ -x "$(command -v psql)" ]; then
   echo >&2 "❌ Error: psql is not installed."
@@ -56,13 +58,13 @@ then
   if [[ -n "${REMOVE_PREVIOUS_CONTAINERS}" ]]
   then
     docker-compose down
-    >&2 echo "🧼 Containers were removed successfully"
+    echo "🧼 Containers were removed successfully"
   fi
 
   if [[ -n "${BUILD_CONTAINERS}" ]]
   then
     docker-compose build
-    >&2 echo "🏗️ Containers were built successfully"
+    echo "🏗️ Containers were built successfully"
   fi
 
   # Makes sure the shared network has been created
@@ -74,7 +76,7 @@ then
   fi
 
   docker-compose up -d
-  >&2 echo "🚚 Containers are up"
+  echo "🚚 Containers are up"
 fi
 
 # Allow to skip Meilisearch if not needed
