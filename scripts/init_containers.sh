@@ -77,33 +77,37 @@ then
   >&2 echo "🚚 Containers are up"
 fi
 
-max_attempts=10
+# Allow to skip Meilisearch if not needed
+if [[ -z "${SKIP_MEILISEARCH}" ]]
+then
+  max_attempts=10
+  # Keeps pinging Meilisearch until it's ready to accept commands or reaches the maximum number of attempts
+  for ((attempt=0; attempt < max_attempts; attempt++)); do
+    if curl -X GET "http://localhost:${MEILI_PORT}" -H 'Content-Type: application/json' -H "Authorization: Bearer ${MEILI_MASTER_KEY}" >/dev/null 2>&1; then
+      echo "✅ Meilisearch is now available on port ${MEILI_PORT} 🎉"
+      break
+    else
+      >&2 echo "🛌 Meilisearch is still unavailable - sleeping"
+      sleep 1
+    fi
+  done
 
-# Keeps pinging Meilisearch until it's ready to accept commands or reaches the maximum number of attempts
-for ((attempt=0; attempt < max_attempts; attempt++)); do
-  if curl -X GET "http://localhost:${MEILI_PORT}" -H 'Content-Type: application/json' -H "Authorization: Bearer ${MEILI_MASTER_KEY}" >/dev/null 2>&1; then
-    echo "✅ Meilisearch is now available on port ${MEILI_PORT} 🎉"
-    break
-  else
-    >&2 echo "🛌 Meilisearch is still unavailable - sleeping"
-    sleep 1
+  if [ $attempt -ge $max_attempts ]; then
+    >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. Meilisearch is still unavailable."
+    exit 1
   fi
-done
 
-if [ $attempt -ge $max_attempts ]; then
-  >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. Meilisearch is still unavailable."
-  exit 1
+  # Sets up the Meilisearch indexes
+  echo "🛠️ Setting up the Meilisearch indexes"
+
+  # Creates the Meilisearch indexes
+  curl -X POST "http://localhost:${MEILI_PORT}/indexes" \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer masterkey' \
+    --data-binary "{ \"uid\": \"${MEILI_EXTRACTED_CONTENT_INDEX}\", \"primaryKey\": \"${MEILI_EXTRACTED_CONTENT_PRIMARY_KEY}\" }"
 fi
 
-# Sets up the Meilisearch indexes
-echo "🛠️ Setting up the Meilisearch indexes"
-
-# Creates the Meilisearch indexes
-curl -X POST "http://localhost:${MEILI_PORT}/indexes" \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer masterkey' \
-  --data-binary "{ \"uid\": \"${MEILI_EXTRACTED_CONTENT_INDEX}\", \"primaryKey\": \"${MEILI_EXTRACTED_CONTENT_PRIMARY_KEY}\" }"
-
+max_attempts=10
 export PGPASSWORD="${DB_PASSWORD}"
 # Keeps pinging Postgres until it's ready to accept commands or reaches the maximum number of attempts
 for ((attempt=0; attempt < max_attempts; attempt++)); do
