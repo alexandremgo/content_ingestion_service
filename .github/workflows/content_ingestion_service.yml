@@ -89,10 +89,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install postgresql-client -y
 
       - name: Migrate database
-        run: SKIP_DOCKER=true SKIP_MEILISEARCH=true ../scripts/init_infra.sh
+        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
 
       - name: Check sqlx-data.json is up-to-date
-        run: cargo sqlx prepare --check -- --bin zero2prod
+        run: cargo sqlx prepare --check
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test
@@ -141,7 +141,7 @@ jobs:
       - name: Install postgresql-client
         run: sudo apt-get update && sudo apt-get install postgresql-client -y
       - name: Migrate database
-        run: SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
+        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
       - name: Linting
         working-directory: ./content_ingestion_service
         run: cargo clippy --no-deps -- -D warnings
