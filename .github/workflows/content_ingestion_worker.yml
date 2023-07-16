@@ -52,9 +52,9 @@ jobs:
       - name: Setup Meilisearch
         run: |
           docker run -d -p 7700:7700 --name meilisearch \
-            -e "MEILI_MASTER_KEY=masterkey" \ 
+            -e "MEILI_MASTER_KEY=masterkey" \
             -e "MEILI_NO_ANALYTICS=true" \
-            -v "/tmo/data.ms:/data.ms" 
+            -v /tmp/data.ms:/data.ms \
             getmeili/meilisearch:v1.2.0
 
         # This GitHub Action installs a Rust toolchain using rustup. It is designed for one-line concise usage and good defaults.
