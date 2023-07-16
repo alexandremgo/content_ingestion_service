@@ -1,4 +1,4 @@
-name: Worker Tests
+name: Service Tests
 
 on: [push, pull_request]
 
@@ -14,13 +14,22 @@ concurrency:
 
 defaults:
   run:
-    working-directory: content_ingestion_worker
+    working-directory: content_ingestion_service
 
 jobs:
   test:
-    name: Worker Tests
+    name: Service Tests
     runs-on: ubuntu-latest
+
     services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
       rabbitmq:
         image: rabbitmq:3.12.0-management
         ports:
@@ -29,6 +38,7 @@ jobs:
         env:
           RABBITMQ_DEFAULT_USER: guest
           RABBITMQ_DEFAULT_PASS: guest
+
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
@@ -37,9 +47,9 @@ jobs:
         uses: dorny/paths-filter@v2
         id: filter
         with:
-          # Already set `content_ingestion_worker` as the `working-directory`
+          # Already set `content_ingestion_service` as the `working-directory`
           filters: |
-            content_ingestion_worker:
+            content_ingestion_service:
               - './**'
 
       - name: Setup minio
@@ -65,6 +75,28 @@ jobs:
       # A GitHub Action that implements smart caching for rust/cargo projects with sensible defaults.
       - name: Rust Cache Action
         uses: Swatinem/rust-cache@v2
+        with:
+          # An additional cache key that is added alongside the automatic `job`-based cache key 
+          # and can be used to further differentiate jobs. default: empty
+          key: sqlx-${{ env.SQLX_VERSION }}
+
+      - name: Install sqlx-cli
+        run:
+            cargo install sqlx-cli
+            --version=${{ env.SQLX_VERSION }}
+            --features ${{ env.SQLX_FEATURES }}
+            --no-default-features
+            --locked
+            # The --locked flag can be used to force Cargo to use the packaged Cargo.lock file if it is available. 
+
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install postgresql-client -y
+
+      - name: Migrate database
+        run: SKIP_DOCKER=true ./scripts/init_db.sh
+
+      - name: Check sqlx-data.json is up-to-date
+        run: cargo sqlx prepare --check -- --bin zero2prod
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test
