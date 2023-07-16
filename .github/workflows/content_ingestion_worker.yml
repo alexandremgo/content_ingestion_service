@@ -38,7 +38,6 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v3
 
-        # If at one point `init_infra.sh` is used, the bucket creation part won't be needed anymore
       - name: Setup MinIO and create integration tests bucket
         run: |
           docker run -d -p 9000:9000 --name minio \
@@ -50,10 +49,13 @@ jobs:
             -v /tmp/config:/root/.minio \
             minio/minio server /data
 
-          export AWS_ACCESS_KEY_ID=minio
-          export AWS_SECRET_ACCESS_KEY=password
-          export AWS_EC2_METADATA_DISABLED=true
-          aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://integration-tests-bucket --region=eu-fr-1  
+      - name: Setup Meilisearch
+        run: |
+          docker run -d -p 7700:7700 --name meilisearch \
+            -e "MEILI_MASTER_KEY=masterkey" \ 
+            -e "MEILI_NO_ANALYTICS=true" \
+            -v "/tmo/data.ms:/data.ms" 
+            getmeili/meilisearch:v1.2.0
 
         # This GitHub Action installs a Rust toolchain using rustup. It is designed for one-line concise usage and good defaults.
       - name: Install the Rust toolchain
@@ -62,6 +64,9 @@ jobs:
       # A GitHub Action that implements smart caching for rust/cargo projects with sensible defaults.
       - name: Rust Cache Action
         uses: Swatinem/rust-cache@v2
+
+      - name: Setup MinIO and Meilisearch
+        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_POSTGRES=true ./scripts/init_infra.sh
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test

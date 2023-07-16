@@ -6,24 +6,28 @@ set -eo pipefail
 
 echo "👷 Setting up the infrastructure needed for our services ... 🚧" 
 
-# Checks script dependencies
-if ! [ -x "$(command -v psql)" ]; then
-  echo >&2 "❌ Error: psql is not installed."
-  exit 1
+# Checks script dependencies for Postgres
+if [[ -z "${SKIP_POSTGRES}" ]]
+then
+  if ! [ -x "$(command -v psql)" ]; then
+    echo >&2 "❌ Error: psql is not installed. Necessary to setup Postgres."
+    exit 1
+  fi
+
+  if ! [ -x "$(command -v sqlx)" ]; then
+    echo >&2 "❌ Error: sqlx is not installed."
+    echo >&2 "Use:"
+    echo >&2 "    cargo install --version=0.5.7 sqlx-cli --no-default-features --features postgres"
+    echo >&2 "or:"
+    echo >&2 "    cargo install sqlx-cli --no-default-features --features postgres"
+    echo >&2 "to install it."
+    exit 1
+  fi
 fi
 
-if ! [ -x "$(command -v sqlx)" ]; then
-  echo >&2 "❌ Error: sqlx is not installed."
-  echo >&2 "Use:"
-  echo >&2 "    cargo install --version=0.5.7 sqlx-cli --no-default-features --features postgres"
-  echo >&2 "or:"
-  echo >&2 "    cargo install sqlx-cli --no-default-features --features postgres"
-  echo >&2 "to install it."
-  exit 1
-fi
-
-if ! [ -x "$(command -v aws)" ]; then
-  echo >&2 "❌ Error: aws cli is not installed. Necessary to set up S3-like object storage."
+# Checks script dependencies for MinIO
+if [ -z "${SKIP_MINIO}" ] && ! [ -x "$(command -v aws)" ]; then
+  echo >&2 "❌ Error: aws cli is not installed. Necessary to set up S3-like object storage (MinIO)."
   exit 1
 fi
 
@@ -57,7 +61,7 @@ export MEILI_NO_ANALYTICS=${MEILI_NO_ANALYTICS:=true}
 export MEILI_EXTRACTED_CONTENT_INDEX="extracted_contents"
 export MEILI_EXTRACTED_CONTENT_PRIMARY_KEY="id"
 
-# Allow to skip Docker if a containers are already running
+# Docker step - allowed to skip if a containers are already running
 if [[ -z "${SKIP_DOCKER}" ]]
 then
   if [[ -n "${REMOVE_PREVIOUS_CONTAINERS}" ]]
@@ -84,7 +88,7 @@ then
   echo "🚚 Containers are up"
 fi
 
-# Allow to skip Meilisearch if not needed
+# Meilisearch setup - allowed to skip if not needed
 if [[ -z "${SKIP_MEILISEARCH}" ]]
 then
   max_attempts=10
@@ -114,32 +118,36 @@ then
     --data-binary "{ \"uid\": \"${MEILI_EXTRACTED_CONTENT_INDEX}\", \"primaryKey\": \"${MEILI_EXTRACTED_CONTENT_PRIMARY_KEY}\" }"
 fi
 
-max_attempts=10
-export PGPASSWORD="${DB_PASSWORD}"
-# Keeps pinging Postgres until it's ready to accept commands or reaches the maximum number of attempts
-for ((attempt=0; attempt < max_attempts; attempt++)); do
-  if psql -h "localhost" -U "${DB_USER}" -p "${DB_PORT}" -d "postgres" -c '\q'; then
-    echo "✅ Postgres is up and running on port ${DB_PORT} 🎉"
-    break
-  else
-    >&2 echo "🛌 Postgres is still unavailable - sleeping"
-    sleep 1
-  fi
-done
+# Postgres setup - allowed to skip if not needed
+if [[ -z "${SKIP_POSTGRES}" ]]
+then
+  max_attempts=10
+  export PGPASSWORD="${DB_PASSWORD}"
+  # Keeps pinging Postgres until it's ready to accept commands or reaches the maximum number of attempts
+  for ((attempt=0; attempt < max_attempts; attempt++)); do
+    if psql -h "localhost" -U "${DB_USER}" -p "${DB_PORT}" -d "postgres" -c '\q'; then
+      echo "✅ Postgres is up and running on port ${DB_PORT} 🎉"
+      break
+    else
+      >&2 echo "🛌 Postgres is still unavailable - sleeping"
+      sleep 1
+    fi
+  done
 
-if [ $attempt -ge $max_attempts ]; then
-  >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. Postgres is still unavailable."
-  exit 1
+  if [ $attempt -ge $max_attempts ]; then
+    >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. Postgres is still unavailable."
+    exit 1
+  fi
+
+  # Necessary to work with sqlx cli and sqlx compile-time verification
+  export DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}
+  sqlx database create
+
+  sqlx migrate run
+  echo "🏭 Postgres has been migrated, ready to go!"
 fi
 
-# Necessary to work with sqlx cli and sqlx compile-time verification
-export DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}
-sqlx database create
-
-sqlx migrate run
-echo "🏭 Postgres has been migrated, ready to go!"
-
-# Allow to skip MinIO if not needed
+# MinIO setup - allowed to skip if not needed
 if [[ -z "${SKIP_MINIO}" ]]
 then
   # Necessary to work with aws cli
