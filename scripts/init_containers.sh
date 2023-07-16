@@ -77,12 +77,23 @@ then
   >&2 echo "🚚 Containers are up"
 fi
 
+max_attempts=10
 
-# Keeps pinging Meilisearch until it's ready to accept commands
-until curl -X GET "http://localhost:${MEILI_PORT}" -H 'Content-Type: application/json' -H "Authorization: Bearer ${MEILI_MASTER_KEY}" >/dev/null 2>&1; do
-  >&2 echo "🛌 Meilisearch is still unavailable - sleeping"
-  sleep 1
+# Keeps pinging Meilisearch until it's ready to accept commands or reaches the maximum number of attempts
+for ((attempt=0; attempt < max_attempts; attempt++)); do
+  if curl -X GET "http://localhost:${MEILI_PORT}" -H 'Content-Type: application/json' -H "Authorization: Bearer ${MEILI_MASTER_KEY}" >/dev/null 2>&1; then
+    echo "✅ Meilisearch is now available on port ${MEILI_PORT} 🎉"
+    break
+  else
+    >&2 echo "🛌 Meilisearch is still unavailable - sleeping"
+    sleep 1
+  fi
 done
+
+if [ $attempt -ge $max_attempts ]; then
+  >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. Meilisearch is still unavailable."
+  exit 1
+fi
 
 # Sets up the Meilisearch indexes
 echo "🛠️ Setting up the Meilisearch indexes"
@@ -93,14 +104,22 @@ curl -X POST "http://localhost:${MEILI_PORT}/indexes" \
   -H 'Authorization: Bearer masterkey' \
   --data-binary "{ \"uid\": \"${MEILI_EXTRACTED_CONTENT_INDEX}\", \"primaryKey\": \"${MEILI_EXTRACTED_CONTENT_PRIMARY_KEY}\" }"
 
-# Keeps pinging Postgres until it's ready to accept commands
 export PGPASSWORD="${DB_PASSWORD}"
-until psql -h "localhost" -U "${DB_USER}" -p "${DB_PORT}" -d "postgres" -c '\q'; do
-  >&2 echo "🛌 Postgres is still unavailable - sleeping"
-  sleep 1
+# Keeps pinging Postgres until it's ready to accept commands or reaches the maximum number of attempts
+for ((attempt=0; attempt < max_attempts; attempt++)); do
+  if psql -h "localhost" -U "${DB_USER}" -p "${DB_PORT}" -d "postgres" -c '\q'; then
+    echo "✅ Postgres is up and running on port ${DB_PORT} 🎉"
+    break
+  else
+    >&2 echo "🛌 Postgres is still unavailable - sleeping"
+    sleep 1
+  fi
 done
 
-echo "🎉 Postgres is up and running on port ${DB_PORT}!"
+if [ $attempt -ge $max_attempts ]; then
+  >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. Postgres is still unavailable."
+  exit 1
+fi
 
 # Necessary to work with sqlx cli and sqlx compile-time verification
 export DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}
