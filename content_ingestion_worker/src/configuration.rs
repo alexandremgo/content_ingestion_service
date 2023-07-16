@@ -79,10 +79,10 @@ impl MeilisearchSettings {
 
 /// Extracts app settings from configuration files and env variables
 ///
-/// `base.yaml` should contain shared settings for all environments.
-/// A specific env file should be created for each environment: `develop.yaml`,`local.yaml` and `production.yaml`
+/// `base.yml` should contain shared settings for all environments.
+/// A specific env file should be created for each environment: `develop.yml`,`local.yml` and `production.yml`
 /// The environment is set with the env var `APP_ENVIRONMENT`.
-/// If `APP_ENVIRONMENT` is not set, `develop.yaml` is the default.
+/// If `APP_ENVIRONMENT` is not set, `develop.yml` is the default.
 ///
 /// Settings are also taken from environment variables: with a prefix of APP and '__' as separator
 /// For ex: `APP_APPLICATION__PORT=5001 would set `Settings.application.port`
@@ -96,12 +96,10 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
         .unwrap_or_else(|_| "develop".into())
         .try_into()
         .expect("Failed to parse APP_ENVIRONMENT.");
-    let environment_filename = format!("{}.yaml", environment.as_str());
+    let environment_filename = format!("{}.yml", environment.as_str());
 
     let settings = config::Config::builder()
-        .add_source(config::File::from(
-            configuration_directory.join("base.yaml"),
-        ))
+        .add_source(config::File::from(configuration_directory.join("base.yml")))
         .add_source(config::File::from(
             configuration_directory.join(environment_filename),
         ))
