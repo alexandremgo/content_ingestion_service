@@ -206,9 +206,8 @@ pub async fn execute_handler(
     let mut generator = extract_content_generator(&mut xml_reader, Some(nb_words_per_content));
 
     let mut i = 0;
-    // TODO: Limits to avoid infinite loop during tests
-    // It should never reach 1000 extracted contents in this test.
-    while i < 1000 {
+    // Is a limit needed to avoid infinite loop ?
+    loop {
         let extracted_content = match generator.as_mut().resume() {
             // .as_mut().resume() {
             GeneratorState::Yielded(content) => content,

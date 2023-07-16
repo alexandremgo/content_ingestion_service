@@ -2,16 +2,15 @@ application:
   host: 0.0.0.0
 
 object_storage:
-  host: "127.0.0.1"
+  host: "minio"
   username: "minio"
   password: "password"
-  region: "eu-fr-1"
   bucket_name: prod-bucket
 
 rabbitmq:
-  host: 127.0.0.1
+  host: "rabbitmq"
   queue_name_prefix: prod
 
 meilisearch:
-  host: 127.0.0.1
+  host: "meilisearch"
   api_key: "masterkey"

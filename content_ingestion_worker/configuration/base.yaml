@@ -1,8 +1,9 @@
 application:
-  port: 8000
+  port: 4243
 
 object_storage:
   port: 9000
+  region: "eu-fr-1"
 
 rabbitmq:
   port: 5672

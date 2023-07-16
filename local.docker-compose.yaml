@@ -6,10 +6,10 @@ services:
     ports:
       - '4242:4242'
 
-  # content_ingestion_worker:
-  #   build: ./content_ingestion_worker
-  #   ports:
-  #     - '4243:4243'
+  content_ingestion_worker:
+    build: ./content_ingestion_worker
+    ports:
+      - '4243:4243'
 
 networks:
   default:

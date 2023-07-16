@@ -74,6 +74,9 @@ impl Application {
     ///
     /// self is moved in order for the application not to drop out of scope
     /// and move into a thread for ex
+    /// 
+    /// # Parameters
+    /// - `cancel_token`: to force the shutdown of the application running as an infinite loop
     pub async fn run_until_stopped(
         self,
         cancel_token: CancellationToken,
