@@ -48,6 +48,7 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v3
 
+        # The integration test bucket is created when running `init_infra.sh`
       - name: Setup minio
         run: |
           docker run -d -p 9000:9000 --name minio \
@@ -58,11 +59,6 @@ jobs:
             -v /tmp/data:/data \
             -v /tmp/config:/root/.minio \
             minio/minio server /data
-
-          export AWS_ACCESS_KEY_ID=minio
-          export AWS_SECRET_ACCESS_KEY=password
-          export AWS_EC2_METADATA_DISABLED=true
-          aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://integration-tests-bucket --region=eu-fr-1  
 
         # This GitHub Action installs a Rust toolchain using rustup. It is designed for one-line concise usage and good defaults.
       - name: Install the Rust toolchain
@@ -141,7 +137,7 @@ jobs:
       - name: Install postgresql-client
         run: sudo apt-get update && sudo apt-get install postgresql-client -y
       - name: Migrate database
-        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
+        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_MINIO=true ./scripts/init_infra.sh
       - name: Linting
         working-directory: ./content_ingestion_service
         run: cargo clippy --no-deps -- -D warnings

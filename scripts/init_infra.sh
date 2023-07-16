@@ -22,6 +22,11 @@ if ! [ -x "$(command -v sqlx)" ]; then
   exit 1
 fi
 
+if ! [ -x "$(command -v aws)" ]; then
+  echo >&2 "❌ Error: aws cli is not installed. Necessary to set up S3-like object storage."
+  exit 1
+fi
+
 # Posgres env variables:
 # Checks if a custom user has been set, otherwise default to 'postgres'
 export DB_USER=${POSTGRES_USER:=postgres}
@@ -133,3 +138,48 @@ sqlx database create
 
 sqlx migrate run
 echo "🏭 Postgres has been migrated, ready to go!"
+
+# Allow to skip MinIO if not needed
+if [[ -z "${SKIP_MINIO}" ]]
+then
+  # Necessary to work with aws cli
+  export AWS_ACCESS_KEY_ID=${OBJECT_STORAGE_USER}
+  export AWS_SECRET_ACCESS_KEY=${OBJECT_STORAGE_PASSWORD}
+  export AWS_EC2_METADATA_DISABLED=true
+
+  max_attempts=10
+  # Keeps pinging Postgres until it's ready to accept commands or reaches the maximum number of attempts
+  for ((attempt=0; attempt < max_attempts; attempt++)); do
+    if aws --endpoint-url http://127.0.0.1:${OBJECT_STORAGE_PORT}/ s3 ls; then
+      echo "✅ MinIO is up and running on port ${OBJECT_STORAGE_PORT} 👌"
+      break
+    else
+      >&2 echo "🛌 MinIO is still unavailable - sleeping"
+      sleep 1
+    fi
+  done
+
+  if [ $attempt -ge $max_attempts ]; then
+    >&2 echo "⛔ Maximum number of attempts ($max_attempts) reached. MinIO is still unavailable."
+    exit 1
+  fi
+
+  buckets=("integration-tests-bucket" "local-bucket")
+
+  # Creates (if does not already exist) the bucket for integrations tests to avoid race condition 
+  # when running several tests in parallel + the bucket for local deployment
+  for bucket in "${buckets[@]}"
+  do
+    # Check if the bucket already exists
+    if aws --endpoint-url http://127.0.0.1:${OBJECT_STORAGE_PORT}/ s3api head-bucket --bucket=${bucket} --region=eu-fr-1 > /dev/null 2>&1;
+    then
+      echo "✅ The bucket ${bucket} already exists"
+    else
+      # Create the bucket
+      aws --endpoint-url http://127.0.0.1:${OBJECT_STORAGE_PORT}/ s3 mb s3://${bucket} --region=${OBJECT_STORAGE_SITE_REGION}
+      echo "✅ The bucket ${bucket} was created successfully 🎉"
+    fi
+  done
+
+  echo "🏭 MinIO has been set up, ready to go!"
+fi
