@@ -11,6 +11,12 @@ pub struct SourceMetaPostgresRepository {
     // pg_pool: PgPool,
 }
 
+impl Default for SourceMetaPostgresRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SourceMetaPostgresRepository {
     pub fn new() -> Self {
         Self {}
