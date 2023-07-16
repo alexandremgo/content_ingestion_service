@@ -89,7 +89,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install postgresql-client -y
 
       - name: Migrate database
-        run: SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
+        run: SKIP_DOCKER=true SKIP_MEILISEARCH=true ../scripts/init_infra.sh
 
       - name: Check sqlx-data.json is up-to-date
         run: cargo sqlx prepare --check -- --bin zero2prod
