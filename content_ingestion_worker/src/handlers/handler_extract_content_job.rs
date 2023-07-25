@@ -3,9 +3,13 @@ use std::{io::Cursor, sync::Arc};
 use genawaiter::GeneratorState;
 use lapin::{
     message::DeliveryResult,
-    options::{BasicAckOptions, BasicConsumeOptions, BasicNackOptions, QueueDeclareOptions},
+    options::{
+        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
+        QueueBindOptions, QueueDeclareOptions,
+    },
+    protocol::exchange,
     types::FieldTable,
-    Channel,
+    Channel, Connection as RabbitMQConnection, ExchangeKind,
 };
 use serde_json::json;
 use tracing::{debug, error, info, info_span, Instrument};
@@ -23,10 +27,11 @@ use crate::{
         extracted_content_meilisearch_repository::{
             self, ExtractedContentMeilisearchRepository, ExtractedContentMeilisearchRepositoryError,
         },
-        message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
         source_file_s3_repository::{S3Repository, S3RepositoryError},
     },
 };
+
+pub const BINDING_KEY: &str = "extract_content.text.v1";
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerExtractContentJobError {
@@ -42,20 +47,50 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
 
 #[tracing::instrument(
     name = "Register queue handler",
-    skip(channel, s3_repository, extracted_content_meilisearch_repository)
+    skip(
+        rabbitmq_consuming_connection,
+        s3_repository,
+        extracted_content_meilisearch_repository
+    )
 )]
 pub async fn register_handler(
-    channel: &Channel,
-    queue_name_prefix: &str,
+    rabbitmq_consuming_connection: RabbitMQConnection,
+    exchange_name: &str,
     s3_repository: Arc<S3Repository>,
     extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
 ) -> Result<(), RegisterHandlerExtractContentJobError> {
-    let queue_name = format!("{}_{}", queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE);
+    let channel = rabbitmq_consuming_connection.create_channel().await?;
 
-    let _queue = channel
-        .queue_declare(
-            &queue_name,
-            QueueDeclareOptions::default(),
+    channel
+        .exchange_declare(
+            exchange_name,
+            ExchangeKind::Topic,
+            ExchangeDeclareOptions {
+                durable: true,
+                ..ExchangeDeclareOptions::default()
+            },
+            FieldTable::default(),
+        )
+        .await?;
+
+    // When supplying an empty string queue name, RabbitMQ generates a name for us, returned from the queue declaration request
+    let queue = channel
+        .queue_declare("", QueueDeclareOptions::default(), FieldTable::default())
+        .await?;
+
+    info!(
+        "Declared queue {} on exchange {}, binding on {}",
+        queue.name(),
+        exchange_name,
+        BINDING_KEY
+    );
+
+    channel
+        .queue_bind(
+            queue.name().as_str(),
+            exchange_name,
+            BINDING_KEY,
+            QueueBindOptions::default(),
             FieldTable::default(),
         )
         .await?;
@@ -66,12 +101,18 @@ pub async fn register_handler(
     };
 
     let consumer = channel
-        .basic_consume(&queue_name, "", consumer_options, FieldTable::default())
+        .basic_consume(
+            queue.name().as_str(),
+            "",
+            consumer_options,
+            FieldTable::default(),
+        )
         .await?;
 
     // let s3_repository = Arc::new(s3_repository);
 
     // Sets handler on parsed message
+    // TODO: what happens if the channel or even the connection breaks ? How can we be resilient to a disconnection ?
     consumer.set_delegate(move |delivery: DeliveryResult| {
         let s3_repository = s3_repository.clone();
         let extracted_content_meilisearch_repository =
@@ -150,7 +191,7 @@ pub async fn register_handler(
         }
         .instrument(info_span!(
             "Handling queued message",
-            queue_name,
+            queue_name = %queue.name(),
             message_id = %uuid::Uuid::new_v4(),
         ))
     });

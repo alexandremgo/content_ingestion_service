@@ -44,8 +44,10 @@ pub struct RabbitMQSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
-    /// Useful to create parallel queues during tests for example.
-    pub queue_name_prefix: String,
+
+    /// To separate tests, development and production exchanges
+    pub exchange_name_prefix: String,
+    pub content_exchange: String,
 }
 
 impl RabbitMQSettings {

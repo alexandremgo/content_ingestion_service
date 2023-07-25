@@ -9,7 +9,7 @@ object_storage:
 
 rabbitmq:
   host: 127.0.0.1
-  queue_name_prefix: local
+  exchange_name_prefix: local
 
 meilisearch:
   host: 127.0.0.1

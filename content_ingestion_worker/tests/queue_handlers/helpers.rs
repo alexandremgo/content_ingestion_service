@@ -1,12 +1,15 @@
 use std::io::Read;
 
+use chrono::Utc;
 use content_ingestion_worker::{
     configuration::get_configuration,
     handlers::example::MyData,
-    startup::Application,
+    startup::{get_rabbitmq_connection, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
-use lapin::{options::BasicPublishOptions, BasicProperties, Channel};
+use lapin::{
+    options::BasicPublishOptions, BasicProperties, Channel, Connection as RabbitMQConnection,
+};
 use s3::Bucket;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
@@ -48,27 +51,32 @@ pub struct RabbitMQManagementAPIConfig {
 ///
 /// A test suite to easily create integration tests
 pub struct TestApp {
-    pub rabbitmq_queue_name_prefix: String,
+    pub rabbitmq_connection: RabbitMQConnection,
+    pub rabbitmq_content_exchange_name: String,
+    pub rabbitmq_management_api_config: RabbitMQManagementAPIConfig,
     pub rabbitmq_channel: Channel,
     cancel_token: CancellationToken,
-    pub rabbitmq_management_api_config: RabbitMQManagementAPIConfig,
 
     /// S3 bucket used to setup tests thanks to requests to the S3 API
     pub s3_bucket: Bucket,
 }
 
+#[derive(Debug)]
+pub struct QueueBindingInfo {
+    pub queue_name: String,
+    pub routing_key: String,
+}
+
 impl TestApp {
-    /// Sends an `example` message
-    pub async fn send_queue_message(&self, my_data: MyData) -> Result<(), ()> {
+    /// Helper function to publish a message to the exchange with the given message key
+    pub async fn publish_message(&self, message_key: &str, my_data: MyData) -> Result<(), ()> {
         let my_data = serde_json::to_string(&my_data).unwrap();
         let current_time_ms = chrono::Utc::now().timestamp_millis() as u64;
 
-        let queue_name = format!("{}_queue_test", &self.rabbitmq_queue_name_prefix);
-
         self.rabbitmq_channel
             .basic_publish(
-                "",
-                &queue_name,
+                &self.rabbitmq_content_exchange_name,
+                message_key,
                 BasicPublishOptions::default(),
                 &my_data.as_bytes(),
                 BasicProperties::default()
@@ -83,23 +91,22 @@ impl TestApp {
         Ok(())
     }
 
-    /// Helper function to wait until the queue is declared and a consumer is bound to it
+    /// Helper function to wait until some queues are declared and bound to the given exchange
     ///
     /// # Returns
-    /// A Result containing an error message if an issue occurred
+    /// A Result containing a list of `QueueBindingInfo` if no issue occurred, or an error string message
     #[tracing::instrument(
         name = "Helper waiting until queue is declared and consumer is bound",
         skip(self)
     )]
-    pub async fn wait_until_declared_queue_and_bound_consumer(
+    pub async fn wait_until_queues_declared_and_bound_to_exchange(
         &self,
-        queue_name: &str,
+        exchange_name: &str,
         max_retry: usize,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<QueueBindingInfo>, String> {
         let client = reqwest::Client::new();
 
         let retry_step_time_ms = 1000;
-        let mut declared_and_bound = false;
 
         let RabbitMQManagementAPIConfig {
             base_url,
@@ -112,7 +119,10 @@ impl TestApp {
             sleep(Duration::from_millis(retry_step_time_ms)).await;
 
             let response = client
-                .get(&format!("{}/queues/{}/{}", base_url, vhost, queue_name))
+                .get(&format!(
+                    "{}/exchanges/{}/{}/bindings/source",
+                    base_url, vhost, exchange_name
+                ))
                 .basic_auth(username, Some(password))
                 .send()
                 .await
@@ -131,31 +141,38 @@ impl TestApp {
             let response_json: serde_json::Value = response.json().await.map_err(|err| {
                 format!(
                     "❌ could not deserialize the response from RabbitMQ management API on {}: {}",
-                    queue_name, err
+                    exchange_name, err
                 )
             })?;
-            let nb_consumers = response_json["consumers"].as_u64().unwrap_or(0);
 
-            info!(
-                "📡 From management API: nb consumers for {} = {:?}",
-                queue_name, nb_consumers
-            );
+            info!("📡 From management API: response {:?}", response_json);
 
-            if nb_consumers < 1 {
+            // The API returns an empty array if there are no bindings on the given exchange
+            let bound_queues = response_json.as_array().unwrap();
+
+            if bound_queues.len() < 1 {
                 continue;
-            } else {
-                declared_and_bound = true;
-                break;
             }
-        }
 
-        if declared_and_bound {
-            return Ok(());
+            let queue_binding_infos = bound_queues
+                .iter()
+                .map(|queue_json| {
+                    let queue_name = queue_json["destination"].as_str().unwrap().to_string();
+                    let routing_key = queue_json["routing_key"].as_str().unwrap().to_string();
+
+                    QueueBindingInfo {
+                        queue_name,
+                        routing_key,
+                    }
+                })
+                .collect();
+
+            return Ok(queue_binding_infos);
         }
 
         Err(format!(
-            "❌ the queue {} was not declared and/or no consumers was bound to it",
-            queue_name
+            "❌ no queues were declared and bound to {}",
+            self.rabbitmq_content_exchange_name
         ))
     }
 
@@ -266,8 +283,12 @@ pub async fn spawn_app() -> TestApp {
     let configuration = {
         let mut c = get_configuration().expect("Failed to read configuration.");
 
-        // Uses a different queue for each test case
-        c.rabbitmq.queue_name_prefix = Uuid::new_v4().to_string();
+        // Uses a different exchange for each test case
+        c.rabbitmq.exchange_name_prefix = format!(
+            "test_queue_handlers_{}_{}",
+            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
+            Uuid::new_v4().to_string()
+        );
 
         // Using the same bucket for each integration tests, as:
         // - we cannot create an infinite number of bucket
@@ -293,8 +314,11 @@ pub async fn spawn_app() -> TestApp {
     // Gets the S3 bucket before spawning the application
     let s3_bucket = application.s3_bucket();
 
-    // Creates a RabbitMQ channel before `application` is moved
-    let channel = application.create_rabbitmq_channel().await.unwrap();
+    // RabbitMQ connection used by the test suite
+    let rabbitmq_connection = get_rabbitmq_connection(&configuration.rabbitmq)
+        .await
+        .unwrap();
+    let rabbitmq_channel = rabbitmq_connection.create_channel().await.unwrap();
 
     // To force the shutdown of the application running as an infinite loop
     let cancel_token = CancellationToken::new();
@@ -303,8 +327,12 @@ pub async fn spawn_app() -> TestApp {
     tokio::spawn(application.run_until_stopped(cloned_cancel_token));
 
     TestApp {
-        rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix,
-        rabbitmq_channel: channel,
+        rabbitmq_content_exchange_name: format!(
+            "{}_{}",
+            configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
+        ),
+        rabbitmq_connection,
+        rabbitmq_channel,
         cancel_token,
         rabbitmq_management_api_config,
         s3_bucket,

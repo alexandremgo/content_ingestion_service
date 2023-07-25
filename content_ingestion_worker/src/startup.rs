@@ -8,7 +8,7 @@ use crate::{
         source_file_s3_repository::S3Repository,
     },
 };
-use lapin::{Channel, Connection};
+use lapin::Connection as RabbitMQConnection;
 use meilisearch_sdk::Client as MeilisearchClient;
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
@@ -18,8 +18,8 @@ use tracing::{error, info};
 /// Holds the newly built RabbitMQ connection and any server/useful properties
 pub struct Application {
     // RabbitMQ
-    rabbitmq_connection: Connection,
-    rabbitmq_queue_name_prefix: String,
+    rabbitmq_publishing_connection: RabbitMQConnection,
+    rabbitmq_content_exchange_name: String,
 
     // S3
     // Used for integration tests
@@ -36,7 +36,10 @@ impl Application {
     pub async fn build(settings: Settings) -> Result<Self, ApplicationError> {
         let s3_bucket = set_up_s3(&settings.object_storage).await?;
 
-        let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        // TODO: handle connections with a re-connection strategy
+        // One connection for consuming messages, one for publishing messages
+        let rabbitmq_consuming_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        let rabbitmq_publishing_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let s3_repository = Arc::new(s3_repository);
@@ -50,22 +53,23 @@ impl Application {
             Arc::new(extracted_content_meilisearch_repository);
 
         let app = Self {
-            rabbitmq_connection,
-            rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
+            rabbitmq_publishing_connection,
+            rabbitmq_content_exchange_name: format!(
+                "{}_{}",
+                settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
+            ),
             s3_bucket,
             s3_repository,
             meilisearch_client,
         };
 
-        app.registers_message_handlers(extracted_content_meilisearch_repository)
-            .await?;
+        app.registers_message_handlers(
+            rabbitmq_consuming_connection,
+            extracted_content_meilisearch_repository,
+        )
+        .await?;
 
         Ok(app)
-    }
-
-    /// A channel is a lightweight connection that share a single TCP connection to RabbitMQ
-    pub async fn create_rabbitmq_channel(&self) -> Result<Channel, lapin::Error> {
-        self.rabbitmq_connection.create_channel().await
     }
 
     /// Runs the application until stopped
@@ -105,13 +109,12 @@ impl Application {
     )]
     pub async fn registers_message_handlers(
         &self,
+        rabbitmq_consuming_connection: RabbitMQConnection,
         extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
     ) -> Result<(), ApplicationError> {
-        let channel = self.create_rabbitmq_channel().await?;
-
         handler_extract_content_job::register_handler(
-            &channel,
-            &self.rabbitmq_queue_name_prefix,
+            rabbitmq_consuming_connection,
+            &self.rabbitmq_content_exchange_name,
             self.s3_repository.clone(),
             extracted_content_meilisearch_repository.clone(),
         )
@@ -128,8 +131,8 @@ impl Application {
 /// Create a connection to RabbitMQ
 pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
-) -> Result<lapin::Connection, lapin::Error> {
-    lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await
+) -> Result<RabbitMQConnection, lapin::Error> {
+    RabbitMQConnection::connect(&config.get_uri(), config.get_connection_properties()).await
 }
 
 /// Sets up the S3 object storage

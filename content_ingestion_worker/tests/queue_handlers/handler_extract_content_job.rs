@@ -1,7 +1,7 @@
 use chrono::Utc;
 use content_ingestion_worker::{
     domain::entities::extract_content_job::{ExtractContentJob, SourceType},
-    repositories::message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
+    handlers::handler_extract_content_job::BINDING_KEY,
 };
 use lapin::{options::BasicPublishOptions, BasicProperties};
 use tokio::time::{sleep, Duration};
@@ -14,16 +14,21 @@ async fn handler_acknowledges_extract_content_job_when_correct() {
     // Arrange
     let app = spawn_app().await;
 
-    let queue_name = format!(
-        "{}_{}",
-        app.rabbitmq_queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE
-    );
-
     // Checks that the worker declared and bound a consumer to the queue
     // If this fails, the test fails
-    app.wait_until_declared_queue_and_bound_consumer(&queue_name, 10)
+    let queue_binding_infos = app
+        .wait_until_queues_declared_and_bound_to_exchange(&app.rabbitmq_content_exchange_name, 10)
         .await
         .unwrap();
+
+    let queue_name = queue_binding_infos
+        .iter()
+        .find(|info| info.routing_key == BINDING_KEY)
+        .map(|info| &info.queue_name)
+        .expect(&format!(
+            "No queue was bound on the exchange {} with the routing key {}",
+            app.rabbitmq_content_exchange_name, BINDING_KEY
+        ));
 
     let job = ExtractContentJob {
         source_meta_id: Uuid::new_v4(),
@@ -40,10 +45,12 @@ async fn handler_acknowledges_extract_content_job_when_correct() {
 
     let job = serde_json::to_string(&job).unwrap();
 
+    let routing_key = BINDING_KEY;
+
     app.rabbitmq_channel
         .basic_publish(
-            "",
-            &queue_name,
+            &app.rabbitmq_content_exchange_name,
+            routing_key,
             BasicPublishOptions::default(),
             &job.as_bytes(),
             BasicProperties::default()
@@ -80,16 +87,21 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
     // Arrange
     let app = spawn_app().await;
 
-    let queue_name = format!(
-        "{}_{}",
-        app.rabbitmq_queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE
-    );
-
     // Checks that the worker declared and bound a consumer to the queue
     // If this fails, the test fails
-    app.wait_until_declared_queue_and_bound_consumer(&queue_name, 10)
+    let queue_binding_infos = app
+        .wait_until_queues_declared_and_bound_to_exchange(&app.rabbitmq_content_exchange_name, 10)
         .await
         .unwrap();
+
+    let queue_name = queue_binding_infos
+        .iter()
+        .find(|info| info.routing_key == BINDING_KEY)
+        .map(|info| &info.queue_name)
+        .expect(&format!(
+            "No queue was bound on the exchange {} with the routing key {}",
+            app.rabbitmq_content_exchange_name, BINDING_KEY
+        ));
 
     let job = ExtractContentJob {
         source_meta_id: Uuid::new_v4(),
@@ -98,10 +110,12 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
     };
     let job = serde_json::to_string(&job).unwrap();
 
+    let routing_key = BINDING_KEY;
+
     app.rabbitmq_channel
         .basic_publish(
-            "",
-            &queue_name,
+            &app.rabbitmq_content_exchange_name,
+            routing_key,
             BasicPublishOptions::default(),
             &job.as_bytes(),
             BasicProperties::default()
