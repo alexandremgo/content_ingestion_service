@@ -10,7 +10,7 @@ object_storage:
 
 rabbitmq:
   host: "rabbitmq"
-  queue_name_prefix: prod
+  exchange_name_prefix: prod
 
 meilisearch:
   host: "meilisearch"

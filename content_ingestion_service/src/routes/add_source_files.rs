@@ -1,9 +1,10 @@
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
-use crate::repositories::message_rabbitmq_repository::MessageRabbitMQRepository;
+use crate::repositories::message_rabbitmq_repository::{self, MessageRabbitMQRepository};
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
 use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
@@ -25,6 +26,8 @@ pub struct UploadForm {
 pub enum AddSourceFilesError {
     #[error("No source files were uploaded")]
     NoSourceFiles,
+    #[error("{0}")]
+    RepositoryAccessError(String),
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -38,7 +41,8 @@ impl std::fmt::Debug for AddSourceFilesError {
 impl ResponseError for AddSourceFilesError {
     fn status_code(&self) -> StatusCode {
         match self {
-            AddSourceFilesError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AddSourceFilesError::UnexpectedError(_)
+            | AddSourceFilesError::RepositoryAccessError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AddSourceFilesError::NoSourceFiles => StatusCode::BAD_REQUEST,
         }
     }
@@ -90,7 +94,7 @@ pub async fn add_source_files(
     pool: web::Data<PgPool>,
     s3_repository: web::Data<S3Repository>,
     source_meta_repository: web::Data<SourceMetaPostgresRepository>,
-    message_rabbitmq_repository: web::Data<MessageRabbitMQRepository>,
+    message_rabbitmq_repository: web::Data<Mutex<MessageRabbitMQRepository>>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -220,6 +224,13 @@ pub async fn add_source_files(
             source_type,
             object_store_path_name: object_path_name,
         };
+
+        let mut message_rabbitmq_repository = message_rabbitmq_repository.lock().map_err(|e| {
+            AddSourceFilesError::RepositoryAccessError(format!(
+                "Could not lock RabbitMQ message repository: {}",
+                e
+            ))
+        })?;
 
         message_rabbitmq_repository
             .publish_content_extract_job(job)

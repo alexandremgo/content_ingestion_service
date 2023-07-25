@@ -6,7 +6,10 @@ use actix_web::{
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::net::TcpListener;
+use std::{
+    net::TcpListener,
+    sync::{Arc, Mutex},
+};
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
@@ -29,12 +32,14 @@ pub struct Application {
     // S3
     // Used for integration tests
     s3_bucket: Bucket,
+
     // RabbitMQ
     // Should we keep an instance of the RabbitMQ connection to be able to
     // re-create a channel if there is an error ? The channel can be closed for different reasons,
     // for example by passive declare a queue that does not exist.
     // rabbitmq_connection: lapin::Connection,
     // rabbitmq_queue_name_prefix: String,
+    rabbitmq_publishing_connection: Arc<lapin::Connection>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -69,10 +74,21 @@ impl Application {
         let listener = TcpListener::bind(address)?;
         let port = listener.local_addr().unwrap().port();
 
-        let s3_bucket = set_up_s3(&settings.object_storage).await?;
-        let rabbitmq_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        let rabbitmq_publishing_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        let rabbitmq_publishing_connection = Arc::new(rabbitmq_publishing_connection);
+        let rabbitmq_content_exchange_name = format!(
+            "{}_{}",
+            settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
+        );
 
+        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+            rabbitmq_publishing_connection.clone(),
+            &rabbitmq_content_exchange_name,
+        );
+
+        let s3_bucket = set_up_s3(&settings.object_storage).await?;
         let s3_repository = S3Repository::new(s3_bucket.clone());
+
         let source_meta_repository = SourceMetaPostgresRepository::new();
 
         let server = run(
@@ -80,7 +96,7 @@ impl Application {
             settings,
             nb_workers,
             connection_pool,
-            rabbitmq_connection,
+            message_rabbitmq_repository,
             s3_repository,
             source_meta_repository,
         )?;
@@ -89,6 +105,7 @@ impl Application {
             server,
             port,
             s3_bucket,
+            rabbitmq_publishing_connection,
             // rabbitmq_connection,
             // rabbitmq_queue_name_prefix,
         })
@@ -122,26 +139,25 @@ pub fn run(
     settings: Settings,
     nb_workers: Option<usize>,
     db_pool: PgPool,
-    rabbitmq_connection: lapin::Connection,
+    message_rabbitmq_repository: MessageRabbitMQRepository,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
 
-    // Wraps repositories to register them and access them from handlers
+    // Wraps repositories in a `actix_web::Data` (`Arc`) to be able to register them
+    // and access them from handlers.
+    // Those repositories are shared among all threads.
     let s3_repository = Data::new(s3_repository);
     let source_meta_repository = Data::new(source_meta_repository);
-
-    // Sharing the RabbitMQ connection between each thread
-    // But each thread will use their own channel
-    let rabbitmq_connection = Data::new(rabbitmq_connection);
 
     // `move` to capture variables from the surrounding environment
     let server = HttpServer::new(move || {
         info!("Starting actix-web worker");
-        let rabbitmq_connection = rabbitmq_connection.clone();
-        let rabbitmq_queue_name_prefix = settings.rabbitmq.queue_name_prefix.clone();
+
+        // Only clones thread-safe properties (ie, not the RabbitMQ channel)
+        let message_rabbitmq_repository = message_rabbitmq_repository.clone();
 
         App::new()
             .wrap(TracingLogger::default())
@@ -149,20 +165,26 @@ pub fn run(
             // FIXME: This way of registering is not needed anymore ?
             // .configure(|cfg| register_add_source_files(cfg, &rabbitmq_channel))
             .route("/add_source_files", web::post().to(add_source_files))
-            // Registers the db connection as part of the application state
-            // Gets a pointer copy and attach it to the application state
+            // Used to create SQL transaction
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
             .data_factory(move || {
-                try_build_message_rabbitmq_repository(
-                    rabbitmq_connection.clone(),
-                    rabbitmq_queue_name_prefix.clone(),
-                )
+                let mut message_rabbitmq_repository = message_rabbitmq_repository.clone();
+
+                async {
+                    message_rabbitmq_repository.try_init().await?;
+                    // Puts behind a mutex so the repository is mutable. But as the repository is cloned and then initialized inside
+                    // each thread, it is not shared among all threads, and each thread mutates their own instance of the repository.
+                    Ok::<Mutex<MessageRabbitMQRepository>, ApplicationBuildError>(Mutex::new(
+                        message_rabbitmq_repository,
+                    ))
+                }
             })
     })
     .listen(listener)?;
 
+    // If no workers were set, use the actix-web settings (number of workers = number of physical CPUs)
     if let Some(nb_workers) = nb_workers {
         return Ok(server.workers(nb_workers).run());
     }
@@ -244,20 +266,4 @@ pub async fn create_rabbitmq_channel(
     connection: &lapin::Connection,
 ) -> Result<lapin::Channel, lapin::Error> {
     connection.create_channel().await
-}
-
-/// Builds a MessageRabbitMQRepository from inside a thread
-///
-/// Each thread should have their own RabbitMQ channel.
-async fn try_build_message_rabbitmq_repository(
-    rabbitmq_connection: Data<lapin::Connection>,
-    queue_name_prefix: String,
-) -> Result<MessageRabbitMQRepository, ApplicationBuildError> {
-    info!("🏗️  MessageRabbitMQRepository: async building");
-    let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await?;
-
-    let repository =
-        MessageRabbitMQRepository::try_new(rabbitmq_channel, queue_name_prefix).await?;
-
-    Ok(repository)
 }

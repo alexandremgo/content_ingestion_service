@@ -40,7 +40,7 @@ pub struct TestApp {
     // RabbitMQ channel used to assert checks thanks to messages sent to the queue
     rabbitmq_connection: lapin::Connection,
     pub rabbitmq_channel: lapin::Channel,
-    pub rabbitmq_queue_name_prefix: String,
+    pub rabbitmq_content_exchange_name: String,
 }
 
 /// A test API client / test suite
@@ -81,8 +81,8 @@ pub async fn spawn_app() -> TestApp {
 
         // Uses a random queue name prefix to avoid collisions between tests
         // Max size of queue name = 255 bytes
-        c.rabbitmq.queue_name_prefix = format!(
-            "test_{}_{}",
+        c.rabbitmq.exchange_name_prefix = format!(
+            "test_api_{}_{}",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
             Uuid::new_v4().to_string()
         );
@@ -95,7 +95,7 @@ pub async fn spawn_app() -> TestApp {
     let rabbitmq_connection = get_rabbitmq_connection(&configuration.rabbitmq)
         .await
         .unwrap();
-    let rabbitmq_channel = create_rabbitmq_channel(&rabbitmq_connection).await.unwrap();
+    let rabbitmq_channel = rabbitmq_connection.create_channel().await.unwrap();
 
     // Creates and migrates the database
     set_up_database(&configuration.database).await;
@@ -119,7 +119,10 @@ pub async fn spawn_app() -> TestApp {
         s3_bucket,
         rabbitmq_connection,
         rabbitmq_channel,
-        rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix,
+        rabbitmq_content_exchange_name: format!(
+            "{}_{}",
+            configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
+        ),
     }
 }
 

@@ -11,7 +11,7 @@ object_storage:
 
 rabbitmq:
   host: "rabbitmq"
-  queue_name_prefix: local
+  exchange_name_prefix: local
 
 meilisearch:
   host: "meilisearch"

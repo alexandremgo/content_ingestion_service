@@ -3,12 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use content_ingestion_service::{
     domain::entities::source_meta::SourceType,
-    repositories::message_rabbitmq_repository::CONTENT_EXTRACT_JOB_QUEUE,
     routes::{AddSourceFilesResponse, Status},
 };
 use lapin::{
     message::DeliveryResult,
-    options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
+    options::{BasicAckOptions, BasicConsumeOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
 };
 use regex::Regex;
@@ -19,6 +18,9 @@ use tracing::{error, info, info_span, warn, Instrument};
 use uuid::uuid;
 
 use crate::helpers::{spawn_app, TestApp};
+
+// TODO: define somewhere else
+pub const EXTRACT_CONTENT_BINDING_KEY: &str = "extract_content.text.v1";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_returns_a_200_for_valid_input_data() {
@@ -82,7 +84,7 @@ async fn add_source_files_persists_source_file_and_meta() {
     let mut app = spawn_app().await;
 
     let counter = Arc::new(Mutex::new(0 as u32));
-    listen_to_queue(&mut app, CONTENT_EXTRACT_JOB_QUEUE, 2000, counter.clone()).await;
+    listen_to_content_exchange(&mut app, EXTRACT_CONTENT_BINDING_KEY, 2000, counter.clone()).await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -138,7 +140,7 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     let mut app = spawn_app().await;
 
     let counter = Arc::new(Mutex::new(0 as u32));
-    listen_to_queue(&mut app, CONTENT_EXTRACT_JOB_QUEUE, 2000, counter.clone()).await;
+    listen_to_content_exchange(&mut app, EXTRACT_CONTENT_BINDING_KEY, 2000, counter.clone()).await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -235,49 +237,53 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     assert_eq!(*counter, NUMBER_FILES as u32);
 }
 
-/// Consumes a queue and increase a counter each time a message is consumed
+/// Consumes a queue bound to the content exchange with a given binding key and increase a counter each time a message is consumed
 ///
-/// The correct declaration of the queue is also checked.
+/// The correct declaration of the exchange is also checked.
 ///
 /// # Panics
-/// Panics if the queue is not declared after `wait_queue_timeout_ms` milliseconds
+/// Panics if the exchange is not declared and a queue could not bing to it after `wait_queue_timeout_ms` milliseconds
 ///
 /// # Parameters
 /// - `app`: the test app (to use and reset the rabbitmq channel)
-/// - `queue_name`: the name of the queue to consume (the current environment prefix will be added by this function)
-/// - `wait_queue_timeout_ms`: the maximum time to wait for the queue to be declared
+/// - `binding_key`: the binding key to bind a generated queue to the content exchange
+/// - `wait_queue_timeout_ms`: the maximum time to wait for the exchange to be declared correctly so a queue can be bound to it
 /// - `counter`: the counter to increase each time a message is consumed
-///
-/// TODO: actually check the message
-pub async fn listen_to_queue(
+pub async fn listen_to_content_exchange(
     app: &mut TestApp,
-    queue_name: &str,
+    binding_key: &str,
     wait_queue_timeout_ms: usize,
     counter: Arc<Mutex<u32>>,
 ) {
-    let queue_name = &format!("{}_{}", app.rabbitmq_queue_name_prefix, queue_name);
-
-    // `passive` declaration to check if the queue exists
-    // When `passive` is set, all other method fields except `name` and `no-wait` are ignored
-    // Need a better way (than manually) to keep/set the queue options
-    let queue_declare_options = QueueDeclareOptions {
-        passive: true,
-        durable: false,
-        exclusive: false,
-        auto_delete: false,
-        nowait: false,
-    };
-
     let mut approximate_retried_time_ms = 0;
     let retry_sleep_step_ms = 500;
 
+    let mut queue_name = "".to_string();
+
+    // Retries to bind a queue to the content exchange until `wait_queue_timeout_ms`
     loop {
+        // When supplying an empty string queue name, RabbitMQ generates a name for us, returned from the queue declaration request
+        let queue = app
+            .rabbitmq_channel
+            .queue_declare("", QueueDeclareOptions::default(), FieldTable::default())
+            .await
+            .unwrap();
+
         match app
             .rabbitmq_channel
-            .queue_declare(&queue_name, queue_declare_options, FieldTable::default())
+            .queue_bind(
+                queue.name().as_str(),
+                &app.rabbitmq_content_exchange_name,
+                binding_key,
+                QueueBindOptions::default(),
+                FieldTable::default(),
+            )
             .await
         {
-            Ok(_) => break,
+            Ok(_) => {
+                queue_name = queue.name().as_str().to_owned();
+                break;
+            }
             Err(error) => match error {
                 lapin::Error::ProtocolError(_) | lapin::Error::InvalidChannelState(_) => {
                     warn!(
@@ -304,11 +310,16 @@ pub async fn listen_to_queue(
         sleep(Duration::from_millis(retry_sleep_step_ms as u64)).await;
     }
 
+    info!(
+        "Declared queue {} on exchange {}, binding on {}",
+        queue_name, app.rabbitmq_content_exchange_name, binding_key
+    );
+
     let consumer = app
         .rabbitmq_channel
         .basic_consume(
             &queue_name,
-            "tag_foo",
+            "",
             BasicConsumeOptions::default(),
             FieldTable::default(),
         )
@@ -339,8 +350,8 @@ pub async fn listen_to_queue(
             delivery
                 .ack(BasicAckOptions::default())
                 .await
-                .expect("Failed to ack send_webhook_event message");
+                .expect("Failed to ack message");
         }
-        .instrument(info_span!("Handling queued message",))
+        .instrument(info_span!("Handling test queued message",))
     });
 }

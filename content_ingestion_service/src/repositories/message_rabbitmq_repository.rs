@@ -1,82 +1,121 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use lapin::{
-    options::{BasicPublishOptions, QueueDeclareOptions},
+    options::{BasicPublishOptions, ExchangeDeclareOptions},
     types::FieldTable,
-    BasicProperties, Channel,
+    BasicProperties, Channel, Connection, ExchangeKind,
 };
 use tracing::info;
 
 use crate::{domain::entities::extract_content_job::ExtractContentJob, helper::error_chain_fmt};
 
-/// Message broker using RabbitMQ
+/// Message broker implemented with RabbitMQ
 ///
-/// Repository passed to routes handlers so it could be mocked in the future ?
+/// If we start having several kind of messages for different domains:
+/// - `publish` and other internal methods should be moved to a "core" module
+/// - one repository per domain
 ///
 /// Questions:
 /// - should we keep an instance of the RabbitMQ connection to be able to re-create
 ///   a channel if it is closed ?
 pub struct MessageRabbitMQRepository {
-    channel: Channel,
-    queue_name_prefix: String,
+    /// RabbitMQ connection shared with other objects in different threads
+    connection: Arc<Connection>,
+    channel_container: ChannelContainer,
+    exchange_name: String,
 }
 
-pub const CONTENT_EXTRACT_JOB_QUEUE: &str = "content_extract_job";
+pub const EXTRACT_CONTENT_MESSAGE_KEY: &str = "extract_content.text.v1";
 
-// If we start having several RabbitMQ repository for different domains:
-// - `publish` and other internal methods should be moved to a "core" module
-// - one repository per domain
+/// Clones only the thread safe part of the repository
+///
+/// The channel is not cloned because it is not thread safe
+impl Clone for MessageRabbitMQRepository {
+    /// Only clones the inner RabbitMQ connection and primitive properties, not the RabbitMQ channel.
+    fn clone(&self) -> Self {
+        Self {
+            connection: self.connection.clone(),
+            channel_container: ChannelContainer::new(),
+            exchange_name: self.exchange_name.clone(),
+        }
+    }
+}
+
 impl MessageRabbitMQRepository {
-    #[tracing::instrument(name = "Initializing MessageRabbitMQRepository", skip(channel))]
-    pub async fn try_new(
-        channel: Channel,
-        queue_name_prefix: String,
-    ) -> Result<Self, MessageRabbitMQRepositoryError> {
-        let content_extract_job_queue_name =
-            format!("{}_{}", queue_name_prefix, CONTENT_EXTRACT_JOB_QUEUE);
+    /// Builds a RabbitMQ message repository from a RabbitMQ connection
+    ///
+    /// This constructor does not create a RabbitMQ channel or declare its associated
+    /// exchange.
+    /// The method `try_init` should be called after, inside each thread using this repository.
+    ///
+    /// This constructor can be called before spawning threads using this repository
+    pub fn new(connection: Arc<Connection>, exchange_name: &str) -> Self {
+        Self {
+            connection,
+            channel_container: ChannelContainer::new(),
+            exchange_name: exchange_name.to_string(),
+        }
+    }
 
-        let queue_declare_options = QueueDeclareOptions::default();
-        let _queue = channel
-            .queue_declare(
-                &content_extract_job_queue_name,
-                queue_declare_options,
+    /// Initializes the repository
+    ///
+    /// This should be called inside each thread because a RabbitMQ channel should not be shared between threads
+    ///
+    /// Initializes a RabbitMQ channel and declared the exchange to which this
+    /// repository will be associated
+    #[tracing::instrument(name = "🏗️ Initializing MessageRabbitMQRepository", skip(self))]
+    pub async fn try_init(&mut self) -> Result<(), MessageRabbitMQRepositoryError> {
+        let channel = self.channel_container.get_channel(&self.connection).await?;
+
+        // The options could be defined in the configuration in the future,
+        // and passed inside the `new` constructor.
+        let exchange_declare_options = ExchangeDeclareOptions {
+            durable: true,
+            ..ExchangeDeclareOptions::default()
+        };
+
+        // Idempotent
+        channel
+            .exchange_declare(
+                self.exchange_name.as_str(),
+                ExchangeKind::Topic,
+                exchange_declare_options,
                 FieldTable::default(),
             )
             .await?;
 
         info!(
-            "Successfully declared queue {} with properties: {:?}",
-            content_extract_job_queue_name, queue_declare_options
+            "Successfully declared exchange {} with properties: {:?}",
+            self.exchange_name, exchange_declare_options
         );
 
-        Ok(Self {
-            channel,
-            queue_name_prefix,
-        })
+        Ok(())
     }
 
     /// Internal method to publish a message to a queue
     ///
     /// # Arguments
     /// * `queue_name` - Name of the queue to publish the message to
-    /// * `message` - TODO: data ? Message to publish
+    /// * `data` - Data to publish
     #[tracing::instrument(name = "Publishing message", skip(self))]
     async fn publish(
-        &self,
-        queue_name: &str,
+        &mut self,
+        message_key: &str,
         data: &[u8],
     ) -> Result<(), MessageRabbitMQRepositoryError> {
-        let queue_name = format!("{}_{}", self.queue_name_prefix, queue_name);
         let current_time_ms = Utc::now().timestamp_millis() as u64;
+
+        let channel = self.channel_container.get_channel(&self.connection).await?;
 
         // Publish and only waits for the published confirmation
         // Waiting a 2nd time would wait for a response (ack / nack) from a consumer
         // -> actually no the 2nd await is not waiting for an ack / nack from a consumer
         // TODO: no error if the queue does not exist ...
-        let response_first_confirm = self
-            .channel
+        let response_first_confirm = channel
             .basic_publish(
-                "",
-                &queue_name,
+                &self.exchange_name,
+                message_key,
                 BasicPublishOptions::default(),
                 data,
                 BasicProperties::default()
@@ -84,8 +123,10 @@ impl MessageRabbitMQRepository {
                     .with_message_id(uuid::Uuid::new_v4().to_string().into()),
             )
             .await?;
-        // TODO: getting a NotRequested - i don't understand what it does 🤷
+
+        // TODO: Remove publish confirmation
         let response_second_confirm = response_first_confirm.await?;
+
         info!(
             "Published message response from 2nd confirm: {:?}",
             response_second_confirm
@@ -97,12 +138,12 @@ impl MessageRabbitMQRepository {
     /// Publishes a content extraction job message
     #[tracing::instrument(name = "Publishing content extract job", skip(self))]
     pub async fn publish_content_extract_job(
-        &self,
+        &mut self,
         job: ExtractContentJob,
     ) -> Result<(), MessageRabbitMQRepositoryError> {
         let json_job = serde_json::to_string(&job)?;
 
-        self.publish(CONTENT_EXTRACT_JOB_QUEUE, json_job.as_bytes())
+        self.publish(EXTRACT_CONTENT_MESSAGE_KEY, json_job.as_bytes())
             .await
     }
 }
@@ -113,10 +154,43 @@ pub enum MessageRabbitMQRepositoryError {
     RabbitMQError(#[from] lapin::Error),
     #[error("Error while serializing extract_content_job message data: {0}")]
     JsonError(#[from] serde_json::Error),
+    #[error("{0}")]
+    ChannelInternalError(String),
 }
 
 impl std::fmt::Debug for MessageRabbitMQRepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
+    }
+}
+
+/// A kind of singleton, implementing the creation and cleaning logic of a Channel
+///
+/// The channel is factored into a separate struct so the compiler is able
+/// to see that only the `_channel` property is mutated when calling `get_channel`.
+struct ChannelContainer {
+    _channel: Option<Channel>,
+}
+
+impl ChannelContainer {
+    pub fn new() -> Self {
+        Self { _channel: None }
+    }
+    /// Handle the "singleton", that can be lazily initialize the channel
+    pub async fn get_channel(
+        &mut self,
+        connection: &Connection,
+    ) -> Result<&Channel, MessageRabbitMQRepositoryError> {
+        if let Some(ref channel) = self._channel {
+            return Ok(channel);
+        } else {
+            let channel = connection.create_channel().await?;
+            self._channel = Some(channel);
+            return self._channel.as_ref().ok_or(
+                MessageRabbitMQRepositoryError::ChannelInternalError(
+                    "Channel reference could not be unwrapped".to_string(),
+                ),
+            );
+        }
     }
 }
