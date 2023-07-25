@@ -25,10 +25,12 @@ async fn handler_acknowledges_extract_content_job_when_correct() {
         .iter()
         .find(|info| info.routing_key == BINDING_KEY)
         .map(|info| &info.queue_name)
-        .expect(&format!(
-            "No queue was bound on the exchange {} with the routing key {}",
-            app.rabbitmq_content_exchange_name, BINDING_KEY
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "No queue was bound on the exchange {} with the routing key {}",
+                app.rabbitmq_content_exchange_name, BINDING_KEY
+            )
+        });
 
     let job = ExtractContentJob {
         source_meta_id: Uuid::new_v4(),
@@ -52,7 +54,7 @@ async fn handler_acknowledges_extract_content_job_when_correct() {
             &app.rabbitmq_content_exchange_name,
             routing_key,
             BasicPublishOptions::default(),
-            &job.as_bytes(),
+            job.as_bytes(),
             BasicProperties::default()
                 .with_timestamp(Utc::now().timestamp_millis() as u64)
                 .with_message_id(uuid::Uuid::new_v4().to_string().into()),
@@ -66,7 +68,7 @@ async fn handler_acknowledges_extract_content_job_when_correct() {
     let mut nb_ack = 0;
 
     for _i in 0..max_retry {
-        nb_ack = match app.get_queue_messages_stats(&queue_name).await {
+        nb_ack = match app.get_queue_messages_stats(queue_name).await {
             (_nb_delivered, nb_ack) => nb_ack,
         };
 
@@ -98,10 +100,12 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
         .iter()
         .find(|info| info.routing_key == BINDING_KEY)
         .map(|info| &info.queue_name)
-        .expect(&format!(
-            "No queue was bound on the exchange {} with the routing key {}",
-            app.rabbitmq_content_exchange_name, BINDING_KEY
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "No queue was bound on the exchange {} with the routing key {}",
+                app.rabbitmq_content_exchange_name, BINDING_KEY
+            )
+        });
 
     let job = ExtractContentJob {
         source_meta_id: Uuid::new_v4(),
@@ -117,7 +121,7 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
             &app.rabbitmq_content_exchange_name,
             routing_key,
             BasicPublishOptions::default(),
-            &job.as_bytes(),
+            job.as_bytes(),
             BasicProperties::default()
                 .with_timestamp(Utc::now().timestamp_millis() as u64)
                 .with_message_id(uuid::Uuid::new_v4().to_string().into()),
@@ -132,7 +136,7 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
     let mut nb_delivered = 0;
 
     for _i in 0..max_retry {
-        (nb_delivered, nb_ack) = app.get_queue_messages_stats(&queue_name).await;
+        (nb_delivered, nb_ack) = app.get_queue_messages_stats(queue_name).await;
 
         if nb_ack == 0 && nb_delivered == 1 {
             break;

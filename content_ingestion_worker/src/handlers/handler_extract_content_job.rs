@@ -7,25 +7,21 @@ use lapin::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
         QueueBindOptions, QueueDeclareOptions,
     },
-    protocol::exchange,
     types::FieldTable,
-    Channel, Connection as RabbitMQConnection, ExchangeKind,
+    Connection as RabbitMQConnection, ExchangeKind,
 };
 use serde_json::json;
-use tracing::{debug, error, info, info_span, Instrument};
+use tracing::{error, info, info_span, Instrument};
 
 use crate::{
     domain::{
-        entities::{
-            epub_reader::EpubReader, extract_content_job::ExtractContentJob,
-            extracted_content::ExtractedContent, xml_reader,
-        },
+        entities::{epub_reader::EpubReader, extract_content_job::ExtractContentJob, xml_reader},
         services::extract_content_generator::extract_content_generator,
     },
     helper::error_chain_fmt,
     repositories::{
         extracted_content_meilisearch_repository::{
-            self, ExtractedContentMeilisearchRepository, ExtractedContentMeilisearchRepositoryError,
+            ExtractedContentMeilisearchRepository, ExtractedContentMeilisearchRepositoryError,
         },
         source_file_s3_repository::{S3Repository, S3RepositoryError},
     },
@@ -162,7 +158,6 @@ pub async fn register_handler(
                             ?extract_content_job,
                             "Failed to ack extract_content_job message"
                         );
-                        return;
                     }
                 }
                 Err(error) => {
@@ -183,9 +178,7 @@ pub async fn register_handler(
                             ?extract_content_job,
                             "Failed to nack extract_content_job message"
                         );
-                        return;
                     }
-                    return;
                 }
             }
         }

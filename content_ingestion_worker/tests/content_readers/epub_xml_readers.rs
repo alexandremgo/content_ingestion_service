@@ -34,7 +34,7 @@ fn on_correct_epub_it_should_be_able_to_extract_expected_contents() {
         .open(format!(
             "tests/resources/results/results_epub_xml_readers_{}_{}.txt",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
-            Uuid::new_v4().to_string()
+            Uuid::new_v4()
         ))
         .unwrap();
 

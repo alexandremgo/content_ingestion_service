@@ -131,7 +131,7 @@ impl<SourceReader: Read + MetaRead> XMLReader<SourceReader> {
                             .map(|element| char::from(element.to_owned()))
                             .collect();
 
-                        if next_content.len() == 0 {
+                        if next_content.is_empty() {
                             debug!("Content length = 0");
                             return Ok(0);
                         }
@@ -230,11 +230,11 @@ impl<SourceReader: Read + MetaRead> MetaRead for XMLReader<SourceReader> {
 
         if let Some(map) = source_meta.as_object_mut() {
             map.insert(XML_READER_META_KEY.to_string(), self.metadata.clone());
-            return source_meta;
+            source_meta
         } else {
             let mut map = Map::new();
             map.insert(XML_READER_META_KEY.to_string(), self.metadata.clone());
-            return JsonValue::Object(map);
+            JsonValue::Object(map)
         }
     }
 }
@@ -345,7 +345,7 @@ mod tests {
                 if i % 2 == 0 {
                     return format!("<h2>{}</h2>", sentence);
                 }
-                return format!("<p>{}</p>", sentence);
+                format!("<p>{}</p>", sentence)
             })
             .collect();
         let content = format!(

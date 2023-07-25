@@ -78,7 +78,7 @@ impl TestApp {
                 &self.rabbitmq_content_exchange_name,
                 message_key,
                 BasicPublishOptions::default(),
-                &my_data.as_bytes(),
+                my_data.as_bytes(),
                 BasicProperties::default()
                     .with_timestamp(current_time_ms)
                     .with_message_id(uuid::Uuid::new_v4().to_string().into()),
@@ -150,7 +150,7 @@ impl TestApp {
             // The API returns an empty array if there are no bindings on the given exchange
             let bound_queues = response_json.as_array().unwrap();
 
-            if bound_queues.len() < 1 {
+            if bound_queues.is_empty() {
                 continue;
             }
 
@@ -287,7 +287,7 @@ pub async fn spawn_app() -> TestApp {
         c.rabbitmq.exchange_name_prefix = format!(
             "test_queue_handlers_{}_{}",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
-            Uuid::new_v4().to_string()
+            Uuid::new_v4()
         );
 
         // Using the same bucket for each integration tests, as:
