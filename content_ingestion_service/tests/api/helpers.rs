@@ -68,7 +68,7 @@ pub async fn spawn_app() -> TestApp {
         c.database.database_name = format!(
             "test_{}_{}",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
-            Uuid::new_v4().to_string()
+            Uuid::new_v4()
         );
         // Uses a random OS port: port 0 is special-cased at the OS level:
         // trying to bind port 0 will trigger an OS scan for an available port which will then be bound to the application.
@@ -84,7 +84,7 @@ pub async fn spawn_app() -> TestApp {
         c.rabbitmq.exchange_name_prefix = format!(
             "test_api_{}_{}",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
-            Uuid::new_v4().to_string()
+            Uuid::new_v4()
         );
 
         c

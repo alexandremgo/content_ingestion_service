@@ -136,7 +136,7 @@ impl Application {
 ///   if `None`, the number of available physical CPUs is used as the worker count.
 pub fn run(
     listener: TcpListener,
-    settings: Settings,
+    _settings: Settings,
     nb_workers: Option<usize>,
     db_pool: PgPool,
     message_rabbitmq_repository: MessageRabbitMQRepository,

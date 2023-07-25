@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
-use crate::repositories::message_rabbitmq_repository::{self, MessageRabbitMQRepository};
+use crate::repositories::message_rabbitmq_repository::MessageRabbitMQRepository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
 use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};

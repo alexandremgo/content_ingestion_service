@@ -83,7 +83,7 @@ async fn add_source_files_persists_source_file_and_meta() {
     // Arranges
     let mut app = spawn_app().await;
 
-    let counter = Arc::new(Mutex::new(0 as u32));
+    let counter = Arc::new(Mutex::new(0_u32));
     listen_to_content_exchange(&mut app, EXTRACT_CONTENT_BINDING_KEY, 2000, counter.clone()).await;
 
     // TODO: real user
@@ -139,7 +139,7 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     // Arranges
     let mut app = spawn_app().await;
 
-    let counter = Arc::new(Mutex::new(0 as u32));
+    let counter = Arc::new(Mutex::new(0_u32));
     listen_to_content_exchange(&mut app, EXTRACT_CONTENT_BINDING_KEY, 2000, counter.clone()).await;
 
     // TODO: real user

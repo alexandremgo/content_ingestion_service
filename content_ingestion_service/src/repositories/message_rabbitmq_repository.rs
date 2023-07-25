@@ -182,7 +182,7 @@ impl ChannelContainer {
         connection: &Connection,
     ) -> Result<&Channel, MessageRabbitMQRepositoryError> {
         if let Some(ref channel) = self._channel {
-            return Ok(channel);
+            Ok(channel)
         } else {
             let channel = connection.create_channel().await?;
             self._channel = Some(channel);
