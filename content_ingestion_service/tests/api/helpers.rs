@@ -1,7 +1,7 @@
 use chrono::Utc;
 use content_ingestion_service::{
     configuration::{get_configuration, DatabaseSettings},
-    startup::{create_rabbitmq_channel, get_connection_pool, get_rabbitmq_connection, Application},
+    startup::{get_connection_pool, get_rabbitmq_connection, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use s3::Bucket;
@@ -45,10 +45,9 @@ pub struct TestApp {
 
 /// A test API client / test suite
 impl TestApp {
+    /// Re-creates a new RabbitMQ channel from the test suite RabbitMQ connection
     pub async fn reset_rabbitmq_channel(&mut self) {
-        self.rabbitmq_channel = create_rabbitmq_channel(&self.rabbitmq_connection)
-            .await
-            .unwrap();
+        self.rabbitmq_channel = self.rabbitmq_connection.create_channel().await.unwrap();
     }
 }
 

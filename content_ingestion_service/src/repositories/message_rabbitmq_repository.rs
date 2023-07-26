@@ -12,16 +12,15 @@ use crate::{domain::entities::extract_content_job::ExtractContentJob, helper::er
 
 /// Message broker implemented with RabbitMQ
 ///
-/// If we start having several kind of messages for different domains:
+/// If we start having several kind of messages that can be grouped by domains:
 /// - `publish` and other internal methods should be moved to a "core" module
 /// - one repository per domain
-///
-/// Questions:
-/// - should we keep an instance of the RabbitMQ connection to be able to re-create
-///   a channel if it is closed ?
 pub struct MessageRabbitMQRepository {
     /// RabbitMQ connection shared with other objects in different threads
     connection: Arc<Connection>,
+    /// RabbitMQ channel should not be shared between threads
+    /// The channel is wrapped into a "container" that handles its lazy initialization
+    /// (so one channel can be created for each thread)
     channel_container: ChannelContainer,
     exchange_name: String,
 }
@@ -108,11 +107,8 @@ impl MessageRabbitMQRepository {
 
         let channel = self.channel_container.get_channel(&self.connection).await?;
 
-        // Publish and only waits for the published confirmation
-        // Waiting a 2nd time would wait for a response (ack / nack) from a consumer
-        // -> actually no the 2nd await is not waiting for an ack / nack from a consumer
-        // TODO: no error if the queue does not exist ...
-        let response_first_confirm = channel
+        // Not using publisher confirmation
+        channel
             .basic_publish(
                 &self.exchange_name,
                 message_key,
@@ -123,14 +119,6 @@ impl MessageRabbitMQRepository {
                     .with_message_id(uuid::Uuid::new_v4().to_string().into()),
             )
             .await?;
-
-        // TODO: Remove publish confirmation
-        let response_second_confirm = response_first_confirm.await?;
-
-        info!(
-            "Published message response from 2nd confirm: {:?}",
-            response_second_confirm
-        );
 
         Ok(())
     }

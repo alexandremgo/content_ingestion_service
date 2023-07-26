@@ -237,22 +237,23 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     assert_eq!(*counter, NUMBER_FILES as u32);
 }
 
-/// Consumes a queue bound to the content exchange with a given binding key and increase a counter each time a message is consumed
+/// Consumes messages from a queue bound to the content exchange with a given binding key
+/// and increase a counter each time a message is consumed
 ///
 /// The correct declaration of the exchange is also checked.
 ///
 /// # Panics
-/// Panics if the exchange is not declared and a queue could not bing to it after `wait_queue_timeout_ms` milliseconds
+/// Panics if the exchange is not declared and a queue could not bing to it after `timeout_binding_exchange_ms` milliseconds
 ///
 /// # Parameters
 /// - `app`: the test app (to use and reset the rabbitmq channel)
 /// - `binding_key`: the binding key to bind a generated queue to the content exchange
-/// - `wait_queue_timeout_ms`: the maximum time to wait for the exchange to be declared correctly so a queue can be bound to it
+/// - `timeout_binding_exchange_ms`: the maximum time to wait for the exchange to be declared correctly so a queue can be bound to it
 /// - `counter`: the counter to increase each time a message is consumed
 pub async fn listen_to_content_exchange(
     app: &mut TestApp,
     binding_key: &str,
-    wait_queue_timeout_ms: usize,
+    timeout_binding_exchange_ms: usize,
     counter: Arc<Mutex<u32>>,
 ) {
     let mut approximate_retried_time_ms = 0;
@@ -260,7 +261,7 @@ pub async fn listen_to_content_exchange(
 
     let mut queue_name = "".to_string();
 
-    // Retries to bind a queue to the content exchange until `wait_queue_timeout_ms`
+    // Retries to bind a queue to the content exchange until `timeout_binding_exchange_ms`
     loop {
         // When supplying an empty string queue name, RabbitMQ generates a name for us, returned from the queue declaration request
         let queue = app
@@ -303,8 +304,11 @@ pub async fn listen_to_content_exchange(
         };
 
         approximate_retried_time_ms += retry_sleep_step_ms;
-        if approximate_retried_time_ms > wait_queue_timeout_ms {
-            panic!("Timeout: the queue {} has not been declared", queue_name);
+        if approximate_retried_time_ms > timeout_binding_exchange_ms {
+            panic!(
+                "Timeout: could not bind a queue to the exchange {} with the binding key {}",
+                &app.rabbitmq_content_exchange_name, binding_key
+            );
         }
 
         sleep(Duration::from_millis(retry_sleep_step_ms as u64)).await;

@@ -34,9 +34,6 @@ pub struct Application {
     s3_bucket: Bucket,
 
     // RabbitMQ
-    // Should we keep an instance of the RabbitMQ connection to be able to
-    // re-create a channel if there is an error ? The channel can be closed for different reasons,
-    // for example by passive declare a queue that does not exist.
     // rabbitmq_connection: lapin::Connection,
     // rabbitmq_queue_name_prefix: String,
     rabbitmq_publishing_connection: Arc<lapin::Connection>,
@@ -259,11 +256,4 @@ pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
 ) -> Result<lapin::Connection, lapin::Error> {
     lapin::Connection::connect(&config.get_uri(), config.get_connection_properties()).await
-}
-
-// Not a method/self because we need a channel to run the server, before building the application
-pub async fn create_rabbitmq_channel(
-    connection: &lapin::Connection,
-) -> Result<lapin::Channel, lapin::Error> {
-    connection.create_channel().await
 }
