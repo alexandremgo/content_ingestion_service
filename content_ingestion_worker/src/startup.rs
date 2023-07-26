@@ -5,6 +5,7 @@ use crate::{
     handlers::handler_extract_content_job::{self, RegisterHandlerExtractContentJobError},
     repositories::{
         extracted_content_meilisearch_repository::ExtractedContentMeilisearchRepository,
+        message_rabbitmq_repository::MessageRabbitMQRepository,
         source_file_s3_repository::S3Repository,
     },
 };
@@ -18,7 +19,7 @@ use tracing::{error, info};
 /// Holds the newly built RabbitMQ connection and any server/useful properties
 pub struct Application {
     // RabbitMQ
-    rabbitmq_publishing_connection: RabbitMQConnection,
+    rabbitmq_publishing_connection: Arc<RabbitMQConnection>,
     rabbitmq_content_exchange_name: String,
 
     // S3
@@ -39,7 +40,18 @@ impl Application {
         // TODO: handle connections with a re-connection strategy
         // One connection for consuming messages, one for publishing messages
         let rabbitmq_consuming_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
-        let rabbitmq_publishing_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        let rabbitmq_publishing_connection =
+            Arc::new(get_rabbitmq_connection(&settings.rabbitmq).await?);
+
+        let rabbitmq_content_exchange_name = format!(
+            "{}_{}",
+            settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
+        );
+
+        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+            rabbitmq_publishing_connection.clone(),
+            &rabbitmq_content_exchange_name,
+        );
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
         let s3_repository = Arc::new(s3_repository);
@@ -54,10 +66,7 @@ impl Application {
 
         let app = Self {
             rabbitmq_publishing_connection,
-            rabbitmq_content_exchange_name: format!(
-                "{}_{}",
-                settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
-            ),
+            rabbitmq_content_exchange_name,
             s3_bucket,
             s3_repository,
             meilisearch_client,
@@ -65,6 +74,7 @@ impl Application {
 
         app.registers_message_handlers(
             rabbitmq_consuming_connection,
+            message_rabbitmq_repository,
             extracted_content_meilisearch_repository,
         )
         .await?;
@@ -105,11 +115,17 @@ impl Application {
     /// Registers queue message handlers to start the worker
     #[tracing::instrument(
         name = "Preparing to run the worker application",
-        skip(self, extracted_content_meilisearch_repository)
+        skip(
+            self,
+            rabbitmq_consuming_connection,
+            message_rabbitmq_repository,
+            extracted_content_meilisearch_repository
+        )
     )]
     pub async fn registers_message_handlers(
         &self,
         rabbitmq_consuming_connection: RabbitMQConnection,
+        message_rabbitmq_repository: MessageRabbitMQRepository,
         extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
     ) -> Result<(), ApplicationError> {
         handler_extract_content_job::register_handler(
@@ -117,6 +133,7 @@ impl Application {
             &self.rabbitmq_content_exchange_name,
             self.s3_repository.clone(),
             extracted_content_meilisearch_repository.clone(),
+            message_rabbitmq_repository.clone(),
         )
         .await?;
 

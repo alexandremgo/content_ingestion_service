@@ -260,6 +260,11 @@ impl TestApp {
         Ok(())
     }
 
+    /// Re-creates a new RabbitMQ channel from the test suite RabbitMQ connection
+    pub async fn reset_rabbitmq_channel(&mut self) {
+        self.rabbitmq_channel = self.rabbitmq_connection.create_channel().await.unwrap();
+    }
+
     /// Shutdowns the test suite by sending a cancel signal to every registered spawned tasks (the RabbitMQ client/worker app)
     ///
     /// It was needed because the spawned RabbitMQ client/worker app was not shutting down correctly after each test

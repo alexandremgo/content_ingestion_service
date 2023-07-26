@@ -1,4 +1,5 @@
 use std::{io::Cursor, sync::Arc};
+use tokio::sync::Mutex;
 
 use genawaiter::GeneratorState;
 use lapin::{
@@ -23,6 +24,7 @@ use crate::{
         extracted_content_meilisearch_repository::{
             ExtractedContentMeilisearchRepository, ExtractedContentMeilisearchRepositoryError,
         },
+        message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
         source_file_s3_repository::{S3Repository, S3RepositoryError},
     },
 };
@@ -33,6 +35,8 @@ pub const BINDING_KEY: &str = "extract_content.text.v1";
 pub enum RegisterHandlerExtractContentJobError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
+    #[error(transparent)]
+    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
 }
 
 impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
@@ -41,12 +45,33 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
     }
 }
 
+/// Registers the message handlers to a given exchange with a specific binding key
+///
+/// It declare a queue and binds it to the given exchange.
+/// There can be several handlers in parallel for the same queue.
+///
+/// Some repositories (MessageRabbitMQRepository) are initialized inside each thread that are spawned to handle a message
+/// to avoid sharing some instances (ex: RabbitMQ channel) between each thread
+///
+///
+/// Question: on the RabbitMQ publishing connection/channels:
+/// Should we create a new channel for each or share the same channel between the spawned message handlers ?
+/// As we spawn a new message handler for each message, would we create too many channels ?
+///
+/// Doc: https://www.rabbitmq.com/channels.html#lifecycle
+/// > Much like connections, channels are meant to be long lived. That is, there is no need
+/// > to open a channel per operation and doing so would be very inefficient, since opening a channel is a network roundtrip.
+///
+/// Current version: one channel for this collection of handlers (so a shared channel between the spawned handlers).
+/// We can limit the number of consumed message with RabbitMQ prefetch setting.
+/// TODO: measure number of created channels
 #[tracing::instrument(
-    name = "Register queue handler",
+    name = "Register message handlers",
     skip(
         rabbitmq_consuming_connection,
         s3_repository,
-        extracted_content_meilisearch_repository
+        extracted_content_meilisearch_repository,
+        message_rabbitmq_repository
     )
 )]
 pub async fn register_handler(
@@ -54,6 +79,8 @@ pub async fn register_handler(
     exchange_name: &str,
     s3_repository: Arc<S3Repository>,
     extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
+    // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
+    mut message_rabbitmq_repository: MessageRabbitMQRepository,
 ) -> Result<(), RegisterHandlerExtractContentJobError> {
     let channel = rabbitmq_consuming_connection.create_channel().await?;
 
@@ -105,7 +132,16 @@ pub async fn register_handler(
         )
         .await?;
 
-    // let s3_repository = Arc::new(s3_repository);
+    // One (for publishing) channel for this collection of handlers
+    message_rabbitmq_repository.try_init().await?;
+    // The fact that we need a collection-wide mutex like this is hinting that there is a problem
+    // Each spawned handler will have to lock this repository to be able to publish.
+    // At least this will limit the usage of the same channel in parallel.
+    // But another solution should be preferable.
+    // Maybe a pool of channels that are behind mutexes and can be reset when needed because one failed ?
+    // Then we limit the number of parallel handlers to the number of available channels.
+    // Or is it better to fail fast and re-start a worker ?
+    let message_rabbitmq_repository = Arc::new(Mutex::new(message_rabbitmq_repository));
 
     // Sets handler on parsed message
     // TODO: what happens if the channel or even the connection breaks ? How can we be resilient to a disconnection ?
@@ -113,6 +149,8 @@ pub async fn register_handler(
         let s3_repository = s3_repository.clone();
         let extracted_content_meilisearch_repository =
             extracted_content_meilisearch_repository.clone();
+        // let message_rabbitmq_repository = message_rabbitmq_repository.clone();
+        let message_rabbitmq_repository = Arc::clone(&message_rabbitmq_repository);
 
         async move {
             let delivery = match delivery {
@@ -143,6 +181,7 @@ pub async fn register_handler(
             match execute_handler(
                 s3_repository,
                 extracted_content_meilisearch_repository,
+                message_rabbitmq_repository,
                 &extract_content_job,
             )
             .await
@@ -198,6 +237,8 @@ pub enum ExecuteHandlerExtractContentJobError {
     S3RepositoryError(#[from] S3RepositoryError),
     #[error(transparent)]
     ExtractedContentMeilisearchRepositoryError(#[from] ExtractedContentMeilisearchRepositoryError),
+    #[error(transparent)]
+    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
 }
 
 impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
@@ -208,11 +249,16 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
 
 #[tracing::instrument(
     name = "Executing handler on extract content job",
-    skip(s3_repository, extracted_content_meilisearch_repository)
+    skip(
+        s3_repository,
+        extracted_content_meilisearch_repository,
+        message_rabbitmq_repository
+    )
 )]
 pub async fn execute_handler(
     s3_repository: Arc<S3Repository>,
     extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
+    message_rabbitmq_repository: Arc<Mutex<MessageRabbitMQRepository>>,
     job: &ExtractContentJob,
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
     let ExtractContentJob {
@@ -258,6 +304,12 @@ pub async fn execute_handler(
         // We could decide to continue if we persist the extracted content in more than 1 service.
         extracted_content_meilisearch_repository
             .save(&extracted_content)
+            .await?;
+
+        message_rabbitmq_repository
+            .lock()
+            .await
+            .publish_content_extracted(&extracted_content)
             .await?;
 
         i += 1;
