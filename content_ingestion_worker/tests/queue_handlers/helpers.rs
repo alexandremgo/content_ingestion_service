@@ -329,7 +329,10 @@ pub async fn spawn_app() -> TestApp {
     let cancel_token = CancellationToken::new();
     let cloned_cancel_token = cancel_token.clone();
 
-    tokio::spawn(application.run_until_stopped(cloned_cancel_token));
+    // tokio::spawn(application.run_until_stopped(cloned_cancel_token));
+    tokio::spawn(application.run_2_handlers_until_stopped());
+
+    info!("🔥 service has been spawned into a new thread");
 
     TestApp {
         rabbitmq_content_exchange_name: format!(

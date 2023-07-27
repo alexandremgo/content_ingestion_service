@@ -27,10 +27,11 @@ async fn main() -> std::io::Result<()> {
     let cancel_token = CancellationToken::new();
     let cloned_cancel_token = cancel_token.clone();
 
-    application
-        .run_until_stopped(cloned_cancel_token)
-        .await
-        .unwrap();
+    // application
+    //     .run_until_stopped(cloned_cancel_token)
+    //     .await
+    //     .unwrap();
+    application.run_2_handlers_until_stopped().await.unwrap();
 
     Ok(())
 }

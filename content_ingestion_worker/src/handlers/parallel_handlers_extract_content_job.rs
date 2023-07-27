@@ -1,4 +1,3 @@
-use futures::StreamExt;
 use std::{io::Cursor, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -46,15 +45,28 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
     }
 }
 
-/// Registers the message handler to a given exchange with a specific binding key
+/// Registers the message handlers to a given exchange with a specific binding key
 ///
 /// It declares a queue and binds it to the given exchange.
-/// It handles messages one by one, there is no handling messages in parallel.
+/// There can be several handlers in parallel for the same queue.
 ///
-/// Some repositories (MessageRabbitMQRepository) are initialized inside the handler
+/// Some repositories (MessageRabbitMQRepository) are initialized inside each thread that are spawned to handle a message
 /// to avoid sharing some instances (ex: RabbitMQ channel) between each thread
+///
+///
+/// Question: on the RabbitMQ publishing connection/channels:
+/// Should we create a new channel for each or share the same channel between the spawned message handlers ?
+/// As we spawn a new message handler for each message, would we create too many channels ?
+///
+/// Doc: https://www.rabbitmq.com/channels.html#lifecycle
+/// > Much like connections, channels are meant to be long lived. That is, there is no need
+/// > to open a channel per operation and doing so would be very inefficient, since opening a channel is a network roundtrip.
+///
+/// Current version: one channel for this collection of handlers (so a shared channel between the spawned handlers).
+/// We can limit the number of consumed message with RabbitMQ prefetch setting.
+/// TODO: measure number of created channels
 #[tracing::instrument(
-    name = "Register message handler",
+    name = "Register message handlers, parallel version with delegates",
     skip(
         rabbitmq_consuming_connection,
         s3_repository,
@@ -64,7 +76,7 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
 )]
 pub async fn register_handler(
     rabbitmq_consuming_connection: RabbitMQConnection,
-    exchange_name: String,
+    exchange_name: &str,
     s3_repository: Arc<S3Repository>,
     extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
@@ -74,7 +86,7 @@ pub async fn register_handler(
 
     channel
         .exchange_declare(
-            &exchange_name,
+            exchange_name,
             ExchangeKind::Topic,
             ExchangeDeclareOptions {
                 durable: true,
@@ -99,7 +111,7 @@ pub async fn register_handler(
     channel
         .queue_bind(
             queue.name().as_str(),
-            &exchange_name,
+            exchange_name,
             BINDING_KEY,
             QueueBindOptions::default(),
             FieldTable::default(),
@@ -111,7 +123,7 @@ pub async fn register_handler(
         ..BasicConsumeOptions::default()
     };
 
-    let mut consumer = channel
+    let consumer = channel
         .basic_consume(
             queue.name().as_str(),
             "",
@@ -129,89 +141,92 @@ pub async fn register_handler(
     // Maybe a pool of channels that are behind mutexes and can be reset when needed because one failed ?
     // Then we limit the number of parallel handlers to the number of available channels.
     // Or is it better to fail fast and re-start a worker ?
-    // let message_rabbitmq_repository = Arc::new(Mutex::new(message_rabbitmq_repository));
+    let message_rabbitmq_repository = Arc::new(Mutex::new(message_rabbitmq_repository));
 
-    info!(
-        "📡 Consumer connected to {}, waiting for messages",
-        queue.name()
-    );
-    while let Some(delivery) = consumer.next().await {
-        // let s3_repository = s3_repository.clone();
-        // let extracted_content_meilisearch_repository =
-        //     extracted_content_meilisearch_repository.clone();
+    // Sets handler on parsed message
+    // TODO: what happens if the channel or even the connection breaks ? How can we be resilient to a disconnection ?
+    consumer.set_delegate(move |delivery: DeliveryResult| {
+        let s3_repository = s3_repository.clone();
+        let extracted_content_meilisearch_repository =
+            extracted_content_meilisearch_repository.clone();
         // let message_rabbitmq_repository = message_rabbitmq_repository.clone();
-        // let message_rabbitmq_repository = Arc::clone(&message_rabbitmq_repository);
+        let message_rabbitmq_repository = Arc::clone(&message_rabbitmq_repository);
 
-        let delivery = match delivery {
-            // Carries the delivery alongside its channel
-            Ok(delivery) => delivery,
-            // Carries the error and is always followed by Ok(None)
-            Err(error) => {
-                error!(
-                    ?error,
-                    "Failed to consume queue message on queue {}",
-                    queue.name()
-                );
-                continue;
-            }
-        };
-
-        let extract_content_job = match ExtractContentJob::try_parsing(&delivery.data) {
-            Ok(job) => job,
-            Err(error) => {
-                error!(
-                    ?error,
-                    "Failed to parse extract_content_job message data: {}", error
-                );
-                continue;
-            }
-        };
-
-        info!("Received extract content job: {:?}\n", extract_content_job);
-
-        match execute_handler(
-            s3_repository.clone(),
-            extracted_content_meilisearch_repository.clone(),
-            &mut message_rabbitmq_repository,
-            &extract_content_job,
-        )
-        .await
-        {
-            Ok(()) => {
-                info!(
-                    "Acknowledging message with delivery tag {}",
-                    delivery.delivery_tag
-                );
-                if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
-                    error!(
-                        ?error,
-                        ?extract_content_job,
-                        "Failed to ack extract_content_job message"
-                    );
+        async move {
+            let delivery = match delivery {
+                // Carries the delivery alongside its channel
+                Ok(Some(delivery)) => delivery,
+                // The consumer got canceled
+                Ok(None) => return,
+                // Carries the error and is always followed by Ok(None)
+                Err(error) => {
+                    error!(?error, "Failed to consume queue message");
+                    return;
                 }
-            }
-            Err(error) => {
-                error!(
-                    ?error,
-                    ?extract_content_job,
-                    "Failed to handle extract_content_job message"
-                );
+            };
 
-                // TODO: maybe depending on the error we could reject the message and not just nack
-                info!(
-                    "Not acknowledging message with delivery tag {}",
-                    delivery.delivery_tag
-                );
-                if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
+            let extract_content_job = match ExtractContentJob::try_parsing(&delivery.data) {
+                Ok(job) => job,
+                Err(error) => {
+                    error!(
+                        ?error,
+                        "Failed to parse extract_content_job message data: {}", error
+                    );
+                    return;
+                }
+            };
+
+            info!("Received extract content job: {:?}\n", extract_content_job);
+
+            match execute_handler(
+                s3_repository,
+                extracted_content_meilisearch_repository,
+                message_rabbitmq_repository,
+                &extract_content_job,
+            )
+            .await
+            {
+                Ok(()) => {
+                    info!(
+                        "Acknowledging message with delivery tag {}",
+                        delivery.delivery_tag
+                    );
+                    if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
+                        error!(
+                            ?error,
+                            ?extract_content_job,
+                            "Failed to ack extract_content_job message"
+                        );
+                    }
+                }
+                Err(error) => {
                     error!(
                         ?error,
                         ?extract_content_job,
-                        "Failed to nack extract_content_job message"
+                        "Failed to handle extract_content_job message"
                     );
+
+                    // TODO: maybe depending on the error we could reject the message and not just nack
+                    info!(
+                        "Not acknowledging message with delivery tag {}",
+                        delivery.delivery_tag
+                    );
+                    if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
+                        error!(
+                            ?error,
+                            ?extract_content_job,
+                            "Failed to nack extract_content_job message"
+                        );
+                    }
                 }
             }
         }
-    }
+        .instrument(info_span!(
+            "Handling queued message",
+            queue_name = %queue.name(),
+            message_id = %uuid::Uuid::new_v4(),
+        ))
+    });
 
     Ok(())
 }
@@ -243,7 +258,7 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
 pub async fn execute_handler(
     s3_repository: Arc<S3Repository>,
     extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
-    message_rabbitmq_repository: &mut MessageRabbitMQRepository,
+    message_rabbitmq_repository: Arc<Mutex<MessageRabbitMQRepository>>,
     job: &ExtractContentJob,
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
     let ExtractContentJob {
@@ -292,6 +307,8 @@ pub async fn execute_handler(
             .await?;
 
         message_rabbitmq_repository
+            .lock()
+            .await
             .publish_content_extracted(&extracted_content)
             .await?;
 
