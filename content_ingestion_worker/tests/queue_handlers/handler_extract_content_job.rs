@@ -95,7 +95,7 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_extract_content_job_wh
 
     assert_eq!(nb_ack, 1);
 
-    app.shutdown().await;
+    // app.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -162,7 +162,7 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
     assert_eq!(nb_delivered, 1);
     assert_eq!(nb_ack, 0);
 
-    app.shutdown().await;
+    // app.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -249,7 +249,7 @@ async fn handler_publishes_extract_contented_on_correct_job() {
         number_extracted_contents,
         expected_number_extracted_contents
     );
-    app.shutdown().await;
+    // app.shutdown().await;
 }
 
 /// Consumes messages from a queue bound to the content exchange with a given binding key

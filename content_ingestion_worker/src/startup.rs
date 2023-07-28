@@ -9,13 +9,12 @@ use crate::{
         source_file_s3_repository::S3Repository,
     },
 };
-use futures::{future::join_all, Future, TryFutureExt};
+use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
 use meilisearch_sdk::Client as MeilisearchClient;
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use tokio::{join, task::JoinHandle};
-use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 /// Holds the newly built RabbitMQ connection and any server/useful properties
@@ -27,8 +26,6 @@ pub struct Application {
     // S3
     // Used for integration tests
     s3_bucket: Bucket,
-    // TODO: like the meilisearch repo: do we need it here ? Or pass it directly to registered handlers ?
-    s3_repository: Arc<S3Repository>,
 
     // Meilisearch
     meilisearch_client: MeilisearchClient,
@@ -59,6 +56,7 @@ impl Application {
         );
 
         let s3_repository = S3Repository::new(s3_bucket.clone());
+        // Sharing the same S3 repository with parallel handlers/threads
         let s3_repository = Arc::new(s3_repository);
 
         let meilisearch_client = get_meilisearch_client(&settings.meilisearch);
@@ -66,6 +64,7 @@ impl Application {
             meilisearch_client.clone(),
             settings.meilisearch.extracted_content_index,
         );
+        // Sharing the same meilisearch repository with parallel handlers/threads
         let extracted_content_meilisearch_repository =
             Arc::new(extracted_content_meilisearch_repository);
 
@@ -73,69 +72,114 @@ impl Application {
             rabbitmq_publishing_connection,
             rabbitmq_content_exchange_name,
             s3_bucket,
-            s3_repository,
             meilisearch_client,
             handlers: vec![],
         };
 
-        // Test with delegate
-        // app.registers_message_handlers(
-        //     rabbitmq_consuming_connection,
-        //     message_rabbitmq_repository,
-        //     extracted_content_meilisearch_repository,
-        // )
-        // .await?;
-
-        // Test with 1 thread per binding key/queue (handles message sequentially)
-        // TODO: OK PB: the join! should be use in a `run_until_stopped`
-        // app.registers_message_handlers_in_threads(
-        //     rabbitmq_consuming_connection,
-        //     message_rabbitmq_repository,
-        //     extracted_content_meilisearch_repository,
-        // )
-        // .await?;
-
-        app.registers_2_message_handlers_in_threads(
+        app.prepare_message_handlers(
             rabbitmq_consuming_connection,
             message_rabbitmq_repository,
+            s3_repository,
             extracted_content_meilisearch_repository,
         )
         .await?;
 
-        info!("🦄 OK registered !");
-
         Ok(app)
+    }
+
+    /// Prepares the asynchronous tasks on which our message handlers will run.
+    ///
+    /// A "message handler" consumes messages from a (generated) queue bound to with a specific binding key to the given exchange
+    #[tracing::instrument(
+        name = "Preparing the messages handlers",
+        skip(
+            self,
+            rabbitmq_consuming_connection,
+            message_rabbitmq_repository,
+            s3_repository,
+            extracted_content_meilisearch_repository
+        )
+    )]
+    pub async fn prepare_message_handlers(
+        &mut self,
+        rabbitmq_consuming_connection: RabbitMQConnection,
+        message_rabbitmq_repository: MessageRabbitMQRepository,
+        s3_repository: Arc<S3Repository>,
+        extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
+    ) -> Result<(), ApplicationError> {
+        let s3_repository = s3_repository.clone();
+        let exchange_name = self.rabbitmq_content_exchange_name.clone();
+
+        // We could have several message handlers running in parallel bound with the same binding key to the same exchange.
+        // Or other message handlers bound with a different binding key to the same or another exchange.
+        let handler = tokio::spawn(
+            handler_extract_content_job::register_handler(
+                rabbitmq_consuming_connection,
+                exchange_name,
+                s3_repository,
+                extracted_content_meilisearch_repository.clone(),
+                message_rabbitmq_repository.clone(),
+            )
+            .map_err(|e| e.into()),
+        );
+
+        self.handlers.push(handler);
+
+        Ok(())
     }
 
     /// Runs the application until stopped
     ///
-    /// This function will block the current thread
-    ///
     /// self is moved in order for the application not to drop out of scope
     /// and move into a thread for ex
     ///
-    /// # Parameters
-    /// - `cancel_token`: to force the shutdown of the application running as an infinite loop
-    pub async fn run_until_stopped(
-        self,
-        cancel_token: CancellationToken,
-    ) -> Result<(), ApplicationError> {
-        info!("📡 running until stopped");
+    /// TODO: do we need a `cancel_token: CancellationToken` to force the shutdown of
+    /// the application running as an infinite loop ? Not with the join all.
+    pub async fn run_until_stopped(self) -> Result<(), ApplicationError> {
+        let handler_results = join_all(self.handlers).await;
 
-        loop {
-            if cancel_token.is_cancelled() {
-                break;
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-
-        // Not making it gracefully shutdown
-        // self.rabbitmq_connection.close(200, "").await;
+        info!(
+            "Application stopped with the following results: {:?}",
+            handler_results
+        );
 
         info!("👋 Bye!");
         Ok(())
     }
+
+    pub fn s3_bucket(&self) -> Bucket {
+        self.s3_bucket.clone()
+    }
+
+    // /// Runs the application until stopped
+    // ///
+    // /// This function will block the current thread
+    // ///
+    // /// self is moved in order for the application not to drop out of scope
+    // /// and move into a thread for ex
+    // ///
+    // /// # Parameters
+    // /// - `cancel_token`: to force the shutdown of the application running as an infinite loop
+    // pub async fn run_until_stopped(
+    //     self,
+    //     cancel_token: CancellationToken,
+    // ) -> Result<(), ApplicationError> {
+    //     info!("📡 running until stopped");
+
+    //     loop {
+    //         if cancel_token.is_cancelled() {
+    //             break;
+    //         }
+
+    //         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    //     }
+
+    //     // Not making it gracefully shutdown
+    //     // self.rabbitmq_connection.close(200, "").await;
+
+    //     info!("👋 Bye!");
+    //     Ok(())
+    // }
 
     // /// Registers queue message handlers with delegate to start the worker
     // #[tracing::instrument(
@@ -164,126 +208,6 @@ impl Application {
 
     //     Ok(())
     // }
-
-    /// Registers queue message handlers to start the worker
-    #[tracing::instrument(
-        name = "Preparing to run the worker application",
-        skip(
-            self,
-            rabbitmq_consuming_connection,
-            message_rabbitmq_repository,
-            extracted_content_meilisearch_repository
-        )
-    )]
-    pub async fn registers_message_handlers_in_threads(
-        &self,
-        rabbitmq_consuming_connection: RabbitMQConnection,
-        message_rabbitmq_repository: MessageRabbitMQRepository,
-        extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
-    ) -> Result<(), ApplicationError> {
-        // TODO: OK PB: the join! should be use in a `run_until_stopped`
-        let s3_repository = self.s3_repository.clone();
-        let exchange_name = self.rabbitmq_content_exchange_name.clone();
-
-        tokio::spawn(handler_extract_content_job::register_handler(
-            rabbitmq_consuming_connection,
-            exchange_name,
-            s3_repository,
-            extracted_content_meilisearch_repository.clone(),
-            message_rabbitmq_repository.clone(),
-        ));
-
-        Ok(())
-    }
-
-    /// Registers queue message handlers to start the worker
-    #[tracing::instrument(
-        name = "Preparing to run the worker application",
-        skip(
-            self,
-            rabbitmq_consuming_connection,
-            message_rabbitmq_repository,
-            extracted_content_meilisearch_repository
-        )
-    )]
-    pub async fn registers_2_message_handlers_in_threads(
-        &mut self,
-        rabbitmq_consuming_connection: RabbitMQConnection,
-        message_rabbitmq_repository: MessageRabbitMQRepository,
-        extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
-    ) -> Result<(), ApplicationError> {
-        // TODO: OK PB: the join! should be use in a `run_until_stopped`
-        let s3_repository = self.s3_repository.clone();
-        let exchange_name = self.rabbitmq_content_exchange_name.clone();
-
-        let handler = tokio::spawn(
-            handler_extract_content_job::register_handler(
-                rabbitmq_consuming_connection,
-                exchange_name,
-                s3_repository,
-                extracted_content_meilisearch_repository.clone(),
-                message_rabbitmq_repository.clone(),
-            )
-            .map_err(|e| e.into()),
-        );
-
-        self.handlers.push(handler);
-
-        Ok(())
-    }
-
-    pub async fn run_2_handlers_until_stopped(self) -> Result<(), ApplicationError> {
-        let handler_results = join_all(self.handlers).await;
-
-        info!(
-            "Application stopped with the following results: {:?}",
-            handler_results
-        );
-
-        Ok(())
-    }
-
-    /// Registers the messages handlers and runs the application until stopped
-    ///
-    /// This function will spawn a thread for each handlers and block the current thread
-    /// If one handlers fails completely (errors that could not be handled), the all application fails too
-    ///
-    /// self is moved in order for the application not to drop out of scope
-    /// and move into a thread for ex
-    ///
-    /// # Parameters
-    /// - `cancel_token`: to force the shutdown of the application running as an infinite loop
-    pub async fn run_handlers_until_stopped(
-        self,
-        cancel_token: CancellationToken,
-        rabbitmq_consuming_connection: RabbitMQConnection,
-        message_rabbitmq_repository: MessageRabbitMQRepository,
-        extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
-    ) -> Result<(), ApplicationError> {
-        info!("📡 Running handlers until they are stopped");
-
-        // TODO: Fix s3 repository as property of app, not what we want ?
-        let s3_repository = self.s3_repository.clone();
-        let exchange_name = self.rabbitmq_content_exchange_name.clone();
-
-        let handler_results = join!(handler_extract_content_job::register_handler(
-            rabbitmq_consuming_connection,
-            exchange_name,
-            s3_repository,
-            extracted_content_meilisearch_repository.clone(),
-            message_rabbitmq_repository.clone(),
-        ));
-
-        info!(
-            "Application stopped with the following results: {:?}",
-            handler_results
-        );
-        Ok(())
-    }
-
-    pub fn s3_bucket(&self) -> Bucket {
-        self.s3_bucket.clone()
-    }
 }
 
 /// Create a connection to RabbitMQ

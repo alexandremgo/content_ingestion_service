@@ -1,10 +1,8 @@
 use futures::StreamExt;
 use std::{io::Cursor, sync::Arc};
-use tokio::sync::Mutex;
 
 use genawaiter::GeneratorState;
 use lapin::{
-    message::DeliveryResult,
     options::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
         QueueBindOptions, QueueDeclareOptions,
@@ -136,11 +134,12 @@ pub async fn register_handler(
         queue.name()
     );
     while let Some(delivery) = consumer.next().await {
-        // let s3_repository = s3_repository.clone();
-        // let extracted_content_meilisearch_repository =
-        //     extracted_content_meilisearch_repository.clone();
-        // let message_rabbitmq_repository = message_rabbitmq_repository.clone();
-        // let message_rabbitmq_repository = Arc::clone(&message_rabbitmq_repository);
+        let span = info_span!(
+            "Handling queued message",
+            queue_name = %queue.name(),
+            message_id = %uuid::Uuid::new_v4(),
+        );
+        let _ = span.enter();
 
         let delivery = match delivery {
             // Carries the delivery alongside its channel

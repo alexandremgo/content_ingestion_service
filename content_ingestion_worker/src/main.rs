@@ -3,7 +3,6 @@ use content_ingestion_worker::{
     startup::Application,
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
-use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -24,14 +23,14 @@ async fn main() -> std::io::Result<()> {
 
     // To force the shutdown of the application running as an infinite loop
     // TODO: use it with shutdown signal ? Or put it as optional.
-    let cancel_token = CancellationToken::new();
-    let cloned_cancel_token = cancel_token.clone();
-
+    // let cancel_token = CancellationToken::new();
+    // let cloned_cancel_token = cancel_token.clone();
     // application
     //     .run_until_stopped(cloned_cancel_token)
     //     .await
     //     .unwrap();
-    application.run_2_handlers_until_stopped().await.unwrap();
+
+    application.run_until_stopped().await.unwrap();
 
     Ok(())
 }

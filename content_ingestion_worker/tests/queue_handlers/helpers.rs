@@ -12,7 +12,6 @@ use lapin::{
 };
 use s3::Bucket;
 use tokio::time::{sleep, Duration};
-use tokio_util::sync::CancellationToken;
 use tracing::info;
 use uuid::Uuid;
 
@@ -21,7 +20,7 @@ use once_cell::sync::Lazy;
 // Ensures that the `tracing` stack is only initialized once using `once_cell`
 static TRACING: Lazy<()> = Lazy::new(|| {
     let default_filter_level = "info".to_string();
-    let subscriber_name = "test".to_string();
+    let subscriber_name = "queue_handlers_tests".to_string();
 
     // We cannot assign the output of `get_tracing_subscriber` to a variable based on the value of `TEST_LOG`
     // because the sink is part of the type returned by `get_tracing_subscriber`, therefore they are not the
@@ -55,7 +54,6 @@ pub struct TestApp {
     pub rabbitmq_content_exchange_name: String,
     pub rabbitmq_management_api_config: RabbitMQManagementAPIConfig,
     pub rabbitmq_channel: Channel,
-    cancel_token: CancellationToken,
 
     /// S3 bucket used to setup tests thanks to requests to the S3 API
     pub s3_bucket: Bucket,
@@ -264,21 +262,9 @@ impl TestApp {
     pub async fn reset_rabbitmq_channel(&mut self) {
         self.rabbitmq_channel = self.rabbitmq_connection.create_channel().await.unwrap();
     }
-
-    /// Shutdowns the test suite by sending a cancel signal to every registered spawned tasks (the RabbitMQ client/worker app)
-    ///
-    /// It was needed because the spawned RabbitMQ client/worker app was not shutting down correctly after each test
-    pub async fn shutdown(self) {
-        self.cancel_token.cancel();
-    }
 }
 
 /// Launches the worker/server/RabbitMQ connection as a background task
-///
-/// Note: When a tokio runtime is shut down all tasks spawned on it are dropped.
-/// tokio::test spins up a new runtime at the beginning of each test case and they shut down at the end of each test case.
-/// Therefore normally there is no need to implement any clean up logic to avoid leaking resources between test runs
-/// But the RabbitMQ worker is not being shutdown gracefully...
 pub async fn spawn_app() -> TestApp {
     // The first time `initialize` is invoked the code in `TRACING` is executed.
     // All other invocations will instead skip execution.
@@ -325,14 +311,9 @@ pub async fn spawn_app() -> TestApp {
         .unwrap();
     let rabbitmq_channel = rabbitmq_connection.create_channel().await.unwrap();
 
-    // To force the shutdown of the application running as an infinite loop
-    let cancel_token = CancellationToken::new();
-    let cloned_cancel_token = cancel_token.clone();
+    tokio::spawn(application.run_until_stopped());
 
-    // tokio::spawn(application.run_until_stopped(cloned_cancel_token));
-    tokio::spawn(application.run_2_handlers_until_stopped());
-
-    info!("🔥 service has been spawned into a new thread");
+    info!("The application worker has been spawned into a new thread");
 
     TestApp {
         rabbitmq_content_exchange_name: format!(
@@ -341,7 +322,6 @@ pub async fn spawn_app() -> TestApp {
         ),
         rabbitmq_connection,
         rabbitmq_channel,
-        cancel_token,
         rabbitmq_management_api_config,
         s3_bucket,
     }
