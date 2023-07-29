@@ -14,7 +14,7 @@ use lapin::Connection as RabbitMQConnection;
 use meilisearch_sdk::Client as MeilisearchClient;
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
-use tokio::{join, task::JoinHandle};
+use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 /// Holds the newly built RabbitMQ connection and any server/useful properties

@@ -9,10 +9,7 @@ use content_ingestion_worker::{
 };
 use lapin::{
     message::DeliveryResult,
-    options::{
-        BasicAckOptions, BasicConsumeOptions, BasicPublishOptions, QueueBindOptions,
-        QueueDeclareOptions,
-    },
+    options::{BasicConsumeOptions, BasicPublishOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
     BasicProperties,
 };
