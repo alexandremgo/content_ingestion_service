@@ -130,86 +130,92 @@ pub async fn register_handler(
     // let message_rabbitmq_repository = Arc::new(Mutex::new(message_rabbitmq_repository));
 
     info!(
-        "📡 Consumer connected to {}, waiting for messages",
-        queue.name()
+        "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
+        queue.name(),
+        exchange_name,
+        BINDING_KEY,
     );
+
     while let Some(delivery) = consumer.next().await {
-        let span = info_span!(
-            "Handling queued message",
-            queue_name = %queue.name(),
-            message_id = %uuid::Uuid::new_v4(),
-        );
-        let _ = span.enter();
-
-        let delivery = match delivery {
-            // Carries the delivery alongside its channel
-            Ok(delivery) => delivery,
-            // Carries the error and is always followed by Ok(None)
-            Err(error) => {
-                error!(
-                    ?error,
-                    "Failed to consume queue message on queue {}",
-                    queue.name()
-                );
-                continue;
-            }
-        };
-
-        let extract_content_job = match ExtractContentJob::try_parsing(&delivery.data) {
-            Ok(job) => job,
-            Err(error) => {
-                error!(
-                    ?error,
-                    "Failed to parse extract_content_job message data: {}", error
-                );
-                continue;
-            }
-        };
-
-        info!("Received extract content job: {:?}\n", extract_content_job);
-
-        match execute_handler(
-            s3_repository.clone(),
-            extracted_content_meilisearch_repository.clone(),
-            &mut message_rabbitmq_repository,
-            &extract_content_job,
-        )
-        .await
-        {
-            Ok(()) => {
-                info!(
-                    "Acknowledging message with delivery tag {}",
-                    delivery.delivery_tag
-                );
-                if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
+        async {
+            let delivery = match delivery {
+                // Carries the delivery alongside its channel
+                Ok(delivery) => delivery,
+                // Carries the error and is always followed by Ok(None)
+                Err(error) => {
                     error!(
                         ?error,
-                        ?extract_content_job,
-                        "Failed to ack extract_content_job message"
+                        "Failed to consume queue message on queue {}",
+                        queue.name()
                     );
+                    return;
                 }
-            }
-            Err(error) => {
-                error!(
-                    ?error,
-                    ?extract_content_job,
-                    "Failed to handle extract_content_job message"
-                );
+            };
 
-                // TODO: maybe depending on the error we could reject the message and not just nack
-                info!(
-                    "Not acknowledging message with delivery tag {}",
-                    delivery.delivery_tag
-                );
-                if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
+            let extract_content_job = match ExtractContentJob::try_parsing(&delivery.data) {
+                Ok(job) => job,
+                Err(error) => {
+                    error!(
+                        ?error,
+                        "Failed to parse extract_content_job message data: {}", error
+                    );
+                    return;
+                }
+            };
+
+            info!("Received extract content job: {:?}\n", extract_content_job);
+
+            match execute_handler(
+                s3_repository.clone(),
+                extracted_content_meilisearch_repository.clone(),
+                &mut message_rabbitmq_repository,
+                &extract_content_job,
+            )
+            .await
+            {
+                Ok(()) => {
+                    info!(
+                        "Acknowledging message with delivery tag {}",
+                        delivery.delivery_tag
+                    );
+                    if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
+                        error!(
+                            ?error,
+                            ?extract_content_job,
+                            "Failed to ack extract_content_job message"
+                        );
+                    }
+                }
+                Err(error) => {
                     error!(
                         ?error,
                         ?extract_content_job,
-                        "Failed to nack extract_content_job message"
+                        "Failed to handle extract_content_job message"
                     );
+
+                    // TODO: maybe depending on the error we could reject the message and not just nack
+                    info!(
+                        "Not acknowledging message with delivery tag {}",
+                        delivery.delivery_tag
+                    );
+                    if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
+                        error!(
+                            ?error,
+                            ?extract_content_job,
+                            "Failed to nack extract_content_job message"
+                        );
+                    }
                 }
             }
         }
+        .instrument(info_span!(
+            "Handling consumed message",
+            binding_key = BINDING_KEY,
+            exchange = exchange_name,
+            queue = %queue.name(),
+            message_id = %uuid::Uuid::new_v4(),
+        ))
+        .await
     }
 
     Ok(())

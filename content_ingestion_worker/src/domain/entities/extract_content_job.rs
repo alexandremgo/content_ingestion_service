@@ -24,7 +24,8 @@ pub struct ExtractContentJob {
 impl ExtractContentJob {
     pub fn try_parsing(data: &Vec<u8>) -> Result<Self, ExtractContentJobParsingError> {
         let data = std::str::from_utf8(data)?;
-        let my_data = serde_json::from_str(data)?;
+        let my_data = serde_json::from_str(data)
+            .map_err(|e| ExtractContentJobParsingError::InvalidJsonData(e, data.to_string()))?;
 
         Ok(my_data)
     }
@@ -35,8 +36,8 @@ pub enum ExtractContentJobParsingError {
     #[error("Data could not be converted from utf8 u8 vector to string")]
     InvalidStringData(#[from] std::str::Utf8Error),
 
-    #[error("Data did not represent a valid JSON object: {0}")]
-    InvalidJsonData(#[from] serde_json::Error),
+    #[error("Data did not represent a valid JSON object: {0}. Data: {1}")]
+    InvalidJsonData(serde_json::Error, String),
 }
 
 impl std::fmt::Debug for ExtractContentJobParsingError {
