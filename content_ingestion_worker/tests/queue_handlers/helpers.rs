@@ -3,13 +3,10 @@ use std::io::Read;
 use chrono::Utc;
 use content_ingestion_worker::{
     configuration::get_configuration,
-    handlers::example::MyData,
     startup::{get_rabbitmq_connection, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
-use lapin::{
-    options::BasicPublishOptions, BasicProperties, Channel, Connection as RabbitMQConnection,
-};
+use lapin::{Channel, Connection as RabbitMQConnection};
 use s3::Bucket;
 use tokio::time::{sleep, Duration};
 use tracing::info;
@@ -66,29 +63,6 @@ pub struct QueueBindingInfo {
 }
 
 impl TestApp {
-    /// Helper function to publish a message to the exchange with the given message key
-    pub async fn publish_message(&self, message_key: &str, my_data: MyData) -> Result<(), ()> {
-        let my_data = serde_json::to_string(&my_data).unwrap();
-        let current_time_ms = chrono::Utc::now().timestamp_millis() as u64;
-
-        self.rabbitmq_channel
-            .basic_publish(
-                &self.rabbitmq_content_exchange_name,
-                message_key,
-                BasicPublishOptions::default(),
-                my_data.as_bytes(),
-                BasicProperties::default()
-                    .with_timestamp(current_time_ms)
-                    .with_message_id(uuid::Uuid::new_v4().to_string().into()),
-            )
-            .await
-            .unwrap()
-            .await
-            .unwrap();
-
-        Ok(())
-    }
-
     /// Helper function to wait until some queues are declared and bound to the given exchange
     ///
     /// # Returns
@@ -287,6 +261,14 @@ pub async fn spawn_app() -> TestApp {
         // - on github action: it is created when initializing the workflow (with the aws cli)
         //   to avoid concurrent tests trying to create the same bucket at the same time
         c.object_storage.bucket_name = "integration-tests-bucket".to_string();
+
+        // Meilisearch indexes can be created implicitly (when trying to add a document to an index that does not exist).
+        // Using this property to isolate tests.
+        c.meilisearch.extracted_content_index = format!(
+            "integration_test_index_{}_{}",
+            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
+            Uuid::new_v4()
+        );
 
         c
     };
