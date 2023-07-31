@@ -19,6 +19,9 @@ pub struct ExtractContentJob {
 
     /// Type of source file
     pub source_type: SourceType,
+
+    /// Initial name of the source
+    pub source_initial_name: String,
 }
 
 impl ExtractContentJob {

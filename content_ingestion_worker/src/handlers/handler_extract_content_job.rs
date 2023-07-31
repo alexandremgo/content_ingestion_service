@@ -253,6 +253,8 @@ pub async fn execute_handler(
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
     let ExtractContentJob {
         object_store_path_name,
+        source_type,
+        source_initial_name,
         ..
     } = job;
 
@@ -267,9 +269,11 @@ pub async fn execute_handler(
     // let file_reader = BufReader::new(file_content.as_slice());
     let file_reader = Cursor::new(file_content);
 
-    let epub_reader =
-        EpubReader::from_reader(file_reader, Some(json!({ "file": object_store_path_name })))
-            .unwrap();
+    let epub_reader = EpubReader::from_reader(
+        file_reader,
+        Some(json!({ "file": object_store_path_name, "source_initial_name": source_initial_name, "source_type": source_type })),
+    )
+    .unwrap();
     let mut xml_reader = xml_reader::build_from_reader(epub_reader);
 
     let nb_words_per_content = 100;

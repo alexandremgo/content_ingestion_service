@@ -1210,8 +1210,25 @@ dependencies = [
 name = "embedding_worker"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "config",
  "lapin",
+ "once_cell",
  "rust-bert",
+ "secrecy",
+ "serde",
+ "serde-aux",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-executor-trait",
+ "tokio-reactor-trait",
+ "tokio-util",
+ "tracing",
+ "tracing-bunyan-formatter",
+ "tracing-log",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

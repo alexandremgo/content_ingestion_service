@@ -46,6 +46,7 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_extract_content_job_wh
         source_meta_id: Uuid::new_v4(),
         source_type: SourceType::Epub,
         object_store_path_name: format!("{}/{}", Uuid::new_v4(), "test.epub"),
+        source_initial_name: "test.epub".to_string(),
     };
 
     // Adding the associated test file to the S3 bucket
@@ -120,6 +121,7 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
         source_meta_id: Uuid::new_v4(),
         source_type: SourceType::Epub,
         object_store_path_name: format!("{}/{}", Uuid::new_v4(), "test.epub"),
+        source_initial_name: "test.epub".to_string(),
     };
     let job = serde_json::to_string(&job).unwrap();
 
@@ -182,6 +184,7 @@ async fn handler_publishes_extract_contented_on_correct_job() {
         source_meta_id: Uuid::new_v4(),
         source_type: SourceType::Epub,
         object_store_path_name: format!("{}/{}", Uuid::new_v4(), "test.epub"),
+        source_initial_name: "test.epub".to_string(),
     };
 
     // Adding the associated test file to the S3 bucket

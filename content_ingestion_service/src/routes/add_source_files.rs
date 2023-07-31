@@ -223,6 +223,7 @@ pub async fn add_source_files(
             source_meta_id: source_meta.id,
             source_type,
             object_store_path_name: object_path_name,
+            source_initial_name: file_name.clone(),
         };
 
         let mut message_rabbitmq_repository = message_rabbitmq_repository.lock().map_err(|e| {
