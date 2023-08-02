@@ -1,13 +1,24 @@
-use rust_bert::pipelines::sentence_embeddings::{SentenceEmbeddingsBuilder, SentenceEmbeddingsModelType};
+use embedding_worker::{
+    configuration::get_configuration,
+    startup::Application,
+    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
+};
 
-fn main() {
-    println!("Hello, world!");
-    let model = SentenceEmbeddingsBuilder::remote(SentenceEmbeddingsModelType::AllMiniLmL12V2)
-        .create_model().unwrap();
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let tracing_subscriber =
+        get_tracing_subscriber("embedding_worker".into(), "info".into(), std::io::stdout);
+    init_tracing_subscriber(tracing_subscriber);
 
-    let sentences = ["this is an example sentence", "each sentence is converted"];
+    // Panics if the configuration can't be read
+    let configuration = get_configuration().expect("Failed to read configuration.");
 
-    let output = model.encode(&sentences).unwrap();
+    let application = match Application::build(configuration).await {
+        Ok(application) => application,
+        Err(error) => panic!("Failed to build application: {:?}", error),
+    };
 
-    println!("🦄 Output:\n {:?}", output);
+    application.run_until_stopped().await.unwrap();
+
+    Ok(())
 }

@@ -1,0 +1,6 @@
+application:
+  port: 4243
+
+rabbitmq:
+  port: 5672
+  content_exchange: "content"
