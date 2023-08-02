@@ -29,7 +29,7 @@ use crate::{
     },
 };
 
-pub const BINDING_KEY: &str = "extract_content.text.v1";
+pub const ROUTING_KEY: &str = "extract_content.text.v1";
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerExtractContentJobError {
@@ -105,14 +105,14 @@ pub async fn register_handler(
         "Declared queue {} on exchange {}, binding on {}",
         queue.name(),
         exchange_name,
-        BINDING_KEY
+        ROUTING_KEY
     );
 
     channel
         .queue_bind(
             queue.name().as_str(),
             exchange_name,
-            BINDING_KEY,
+            ROUTING_KEY,
             QueueBindOptions::default(),
             FieldTable::default(),
         )

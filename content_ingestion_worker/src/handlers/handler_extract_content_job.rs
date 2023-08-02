@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-pub const BINDING_KEY: &str = "extract_content.text.v1";
+pub const ROUTING_KEY: &str = "extract_content.text.v1";
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerExtractContentJobError {
@@ -91,14 +91,14 @@ pub async fn register_handler(
         "Declared queue {} on exchange {}, binding on {}",
         queue.name(),
         exchange_name,
-        BINDING_KEY
+        ROUTING_KEY
     );
 
     channel
         .queue_bind(
             queue.name().as_str(),
             &exchange_name,
-            BINDING_KEY,
+            ROUTING_KEY,
             QueueBindOptions::default(),
             FieldTable::default(),
         )
@@ -133,7 +133,7 @@ pub async fn register_handler(
         "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
         queue.name(),
         exchange_name,
-        BINDING_KEY,
+        ROUTING_KEY,
     );
 
     while let Some(delivery) = consumer.next().await {
@@ -210,7 +210,7 @@ pub async fn register_handler(
         }
         .instrument(info_span!(
             "Handling consumed message",
-            binding_key = BINDING_KEY,
+            routing_key = ROUTING_KEY,
             exchange = exchange_name,
             queue = %queue.name(),
             message_id = %uuid::Uuid::new_v4(),

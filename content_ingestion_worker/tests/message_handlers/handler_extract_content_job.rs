@@ -4,7 +4,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use content_ingestion_worker::{
     domain::entities::extract_content_job::{ExtractContentJob, SourceType},
-    handlers::handler_extract_content_job::BINDING_KEY,
+    handlers::handler_extract_content_job::ROUTING_KEY,
     repositories::message_rabbitmq_repository::CONTENT_EXTRACTED_MESSAGE_KEY,
 };
 use lapin::{
@@ -33,12 +33,12 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_extract_content_job_wh
 
     let queue_name = queue_binding_infos
         .iter()
-        .find(|info| info.routing_key == BINDING_KEY)
+        .find(|info| info.routing_key == ROUTING_KEY)
         .map(|info| &info.queue_name)
         .unwrap_or_else(|| {
             panic!(
                 "No queue was bound on the exchange {} with the routing key {}",
-                app.rabbitmq_content_exchange_name, BINDING_KEY
+                app.rabbitmq_content_exchange_name, ROUTING_KEY
             )
         });
 
@@ -59,7 +59,7 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_extract_content_job_wh
     let job = serde_json::to_string(&job).unwrap();
 
     // Sends the job message to the worker binding key
-    let routing_key = BINDING_KEY;
+    let routing_key = ROUTING_KEY;
 
     app.rabbitmq_channel
         .basic_publish(
@@ -108,12 +108,12 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
 
     let queue_name = queue_binding_infos
         .iter()
-        .find(|info| info.routing_key == BINDING_KEY)
+        .find(|info| info.routing_key == ROUTING_KEY)
         .map(|info| &info.queue_name)
         .unwrap_or_else(|| {
             panic!(
                 "No queue was bound on the exchange {} with the routing key {}",
-                app.rabbitmq_content_exchange_name, BINDING_KEY
+                app.rabbitmq_content_exchange_name, ROUTING_KEY
             )
         });
 
@@ -125,7 +125,7 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
     };
     let job = serde_json::to_string(&job).unwrap();
 
-    let routing_key = BINDING_KEY;
+    let routing_key = ROUTING_KEY;
 
     app.rabbitmq_channel
         .basic_publish(
@@ -197,7 +197,7 @@ async fn handler_publishes_extract_contented_on_correct_job() {
     let job = serde_json::to_string(&job).unwrap();
 
     // Sends the job message to the worker binding key
-    let routing_key = BINDING_KEY;
+    let routing_key = ROUTING_KEY;
 
     app.rabbitmq_channel
         .basic_publish(
@@ -257,12 +257,12 @@ async fn handler_publishes_extract_contented_on_correct_job() {
 ///
 /// # Parameters
 /// - `app`: the test app (to use and reset the rabbitmq channel)
-/// - `binding_key`: the binding key to bind a generated queue to the content exchange
+/// - `routing_key`: the binding key to bind a generated queue to the content exchange
 /// - `timeout_binding_exchange_ms`: the maximum time to wait for the exchange to be declared correctly so a queue can be bound to it
 /// - `counter`: the counter to increase each time a message is consumed
 pub async fn listen_to_content_exchange(
     app: &mut TestApp,
-    binding_key: &str,
+    routing_key: &str,
     timeout_binding_exchange_ms: usize,
     counter: Arc<Mutex<u32>>,
 ) {
@@ -285,7 +285,7 @@ pub async fn listen_to_content_exchange(
             .queue_bind(
                 queue.name().as_str(),
                 &app.rabbitmq_content_exchange_name,
-                binding_key,
+                routing_key,
                 QueueBindOptions::default(),
                 FieldTable::default(),
             )
@@ -317,7 +317,7 @@ pub async fn listen_to_content_exchange(
         if approximate_retried_time_ms > timeout_binding_exchange_ms {
             panic!(
                 "Timeout: could not bind a queue to the exchange {} with the binding key {}",
-                &app.rabbitmq_content_exchange_name, binding_key
+                &app.rabbitmq_content_exchange_name, routing_key
             );
         }
 
@@ -326,7 +326,7 @@ pub async fn listen_to_content_exchange(
 
     info!(
         "Declared queue {} on exchange {}, binding on {}",
-        queue_name, app.rabbitmq_content_exchange_name, binding_key
+        queue_name, app.rabbitmq_content_exchange_name, routing_key
     );
 
     let consumer = app
