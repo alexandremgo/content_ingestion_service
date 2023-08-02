@@ -25,7 +25,7 @@ pub struct ExtractContentJob {
 }
 
 impl ExtractContentJob {
-    pub fn try_parsing(data: &Vec<u8>) -> Result<Self, ExtractContentJobParsingError> {
+    pub fn try_parsing(data: &[u8]) -> Result<Self, ExtractContentJobParsingError> {
         let data = std::str::from_utf8(data)?;
         let my_data = serde_json::from_str(data)
             .map_err(|e| ExtractContentJobParsingError::InvalidJsonData(e, data.to_string()))?;

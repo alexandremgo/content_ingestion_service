@@ -199,8 +199,8 @@ impl<SourceReader: Read + Seek> Read for EpubReader<SourceReader> {
                 break;
             }
 
-            for j in 0..bytes_len {
-                buf[i] = utf8_char_buf[j];
+            for utf8_char in utf8_char_buf.iter().take(bytes_len) {
+                buf[i] = *utf8_char;
                 i += 1;
             }
 

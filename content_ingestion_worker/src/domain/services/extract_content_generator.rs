@@ -289,7 +289,6 @@ mod tests {
             "!!!!!!!!",
             "Do you want sugar?",
         ];
-        let expected_nb_yields = expected_yielded_contents.len();
         let content = expected_yielded_contents.join(" ");
 
         let buf_reader = BufReader::new(content.as_bytes());
@@ -297,15 +296,12 @@ mod tests {
         let mut generator = extract_content_generator(&mut simple_reader, Some(8));
 
         // Asserts each yield
-        for i in 0..expected_nb_yields {
+        for expected_content in expected_yielded_contents {
             let yielded_extracted_content = match generator.as_mut().resume() {
                 GeneratorState::Yielded(content) => content,
                 _ => panic!("Unexpected generator state"),
             };
-            assert_eq!(
-                yielded_extracted_content.content.trim(),
-                expected_yielded_contents[i]
-            );
+            assert_eq!(yielded_extracted_content.content.trim(), expected_content);
         }
 
         // Checks complete
