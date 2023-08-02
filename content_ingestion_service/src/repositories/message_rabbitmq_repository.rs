@@ -25,7 +25,7 @@ pub struct MessageRabbitMQRepository {
     exchange_name: String,
 }
 
-pub const EXTRACT_CONTENT_MESSAGE_KEY: &str = "extract_content.text.v1";
+pub const EXTRACT_CONTENT_ROUTING_KEY: &str = "extract_content.text.v1";
 
 /// Clones only the thread safe part of the repository
 ///
@@ -95,12 +95,12 @@ impl MessageRabbitMQRepository {
     /// Internal method to publish a message to a queue
     ///
     /// # Arguments
-    /// * `queue_name` - Name of the queue to publish the message to
+    /// * `routing_key` - routing key to publish the message
     /// * `data` - Data to publish
     #[tracing::instrument(name = "Publishing message", skip(self))]
     async fn publish(
         &mut self,
-        message_key: &str,
+        routing_key: &str,
         data: &[u8],
     ) -> Result<(), MessageRabbitMQRepositoryError> {
         let current_time_ms = Utc::now().timestamp_millis() as u64;
@@ -111,7 +111,7 @@ impl MessageRabbitMQRepository {
         channel
             .basic_publish(
                 &self.exchange_name,
-                message_key,
+                routing_key,
                 BasicPublishOptions::default(),
                 data,
                 BasicProperties::default()
@@ -131,7 +131,7 @@ impl MessageRabbitMQRepository {
     ) -> Result<(), MessageRabbitMQRepositoryError> {
         let json_job = serde_json::to_string(&job)?;
 
-        self.publish(EXTRACT_CONTENT_MESSAGE_KEY, json_job.as_bytes())
+        self.publish(EXTRACT_CONTENT_ROUTING_KEY, json_job.as_bytes())
             .await
     }
 }

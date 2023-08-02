@@ -247,12 +247,12 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
 ///
 /// # Parameters
 /// - `app`: the test app (to use and reset the rabbitmq channel)
-/// - `binding_key`: the binding key to bind a generated queue to the content exchange
+/// - `routing_key`: the binding key to bind a generated queue to the content exchange
 /// - `timeout_binding_exchange_ms`: the maximum time to wait for the exchange to be declared correctly so a queue can be bound to it
 /// - `counter`: the counter to increase each time a message is consumed
 pub async fn listen_to_content_exchange(
     app: &mut TestApp,
-    binding_key: &str,
+    routing_key: &str,
     timeout_binding_exchange_ms: usize,
     counter: Arc<Mutex<u32>>,
 ) {
@@ -275,7 +275,7 @@ pub async fn listen_to_content_exchange(
             .queue_bind(
                 queue.name().as_str(),
                 &app.rabbitmq_content_exchange_name,
-                binding_key,
+                routing_key,
                 QueueBindOptions::default(),
                 FieldTable::default(),
             )
@@ -307,7 +307,7 @@ pub async fn listen_to_content_exchange(
         if approximate_retried_time_ms > timeout_binding_exchange_ms {
             panic!(
                 "Timeout: could not bind a queue to the exchange {} with the binding key {}",
-                &app.rabbitmq_content_exchange_name, binding_key
+                &app.rabbitmq_content_exchange_name, routing_key
             );
         }
 
@@ -316,7 +316,7 @@ pub async fn listen_to_content_exchange(
 
     info!(
         "Declared queue {} on exchange {}, binding on {}",
-        queue_name, app.rabbitmq_content_exchange_name, binding_key
+        queue_name, app.rabbitmq_content_exchange_name, routing_key
     );
 
     let consumer = app
