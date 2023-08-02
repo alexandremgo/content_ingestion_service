@@ -17,7 +17,7 @@ use once_cell::sync::Lazy;
 // Ensures that the `tracing` stack is only initialized once using `once_cell`
 static TRACING: Lazy<()> = Lazy::new(|| {
     let default_filter_level = "info".to_string();
-    let subscriber_name = "queue_handlers_tests".to_string();
+    let subscriber_name = "message_handlers_tests".to_string();
 
     // We cannot assign the output of `get_tracing_subscriber` to a variable based on the value of `TEST_LOG`
     // because the sink is part of the type returned by `get_tracing_subscriber`, therefore they are not the
@@ -250,7 +250,7 @@ pub async fn spawn_app() -> TestApp {
 
         // Uses a different exchange for each test case
         c.rabbitmq.exchange_name_prefix = format!(
-            "test_queue_handlers_{}_{}",
+            "test_message_handlers_{}_{}",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
             Uuid::new_v4()
         );
