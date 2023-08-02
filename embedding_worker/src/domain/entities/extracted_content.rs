@@ -1,10 +1,11 @@
 use crate::helper::error_chain_fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ExtractedContent {
-    pub id: String,
+    pub id: Uuid,
     pub metadata: JsonValue,
     pub content: String,
 }

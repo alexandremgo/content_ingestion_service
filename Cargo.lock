@@ -1212,9 +1212,11 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "config",
+ "fake",
  "futures",
  "lapin",
  "once_cell",
+ "reqwest",
  "rust-bert",
  "secrecy",
  "serde",
