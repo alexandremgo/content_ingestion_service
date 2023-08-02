@@ -25,7 +25,7 @@ impl ExtractedContentMeilisearchRepository {
             .add_or_replace(&[extracted_content], None)
             .await?;
 
-        info!("🍕 task: {:?}", task);
+        info!(?task, "Saved extracted content");
 
         Ok(())
     }

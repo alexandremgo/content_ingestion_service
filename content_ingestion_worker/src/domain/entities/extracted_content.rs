@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ExtractedContent {
-    pub id: String,
+    pub id: Uuid,
     pub metadata: JsonValue,
     pub content: String,
 }
@@ -12,7 +12,7 @@ pub struct ExtractedContent {
 impl ExtractedContent {
     pub fn new(content: String, metadata: JsonValue) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::new_v4(),
             metadata,
             content,
         }
