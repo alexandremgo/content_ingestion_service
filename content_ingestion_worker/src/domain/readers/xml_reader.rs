@@ -3,9 +3,7 @@ use serde_json::{json, Map, Value as JsonValue};
 use std::io::{BufReader, ErrorKind, Read};
 use tracing::debug;
 
-use crate::helper::error_chain_fmt;
-
-use super::meta_read::MetaRead;
+use crate::{helper::error_chain_fmt, domain::entities::meta_read::MetaRead};
 
 #[derive(thiserror::Error)]
 pub enum XMLReaderError {
@@ -242,7 +240,7 @@ impl<SourceReader: Read + MetaRead> MetaRead for XMLReader<SourceReader> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::entities::simple_metadata_reader::{
+    use crate::domain::readers::simple_metadata_reader::{
         SimpleMetadataReader, SIMPLE_READER_META_KEY,
     };
     use fake::{faker::lorem::en::Sentences, Fake};

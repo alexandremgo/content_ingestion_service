@@ -2,7 +2,7 @@ use std::io::Read;
 
 use serde_json::{json, Value as JsonValue};
 
-use super::meta_read::MetaRead;
+use crate::domain::entities::meta_read::MetaRead;
 
 pub const SIMPLE_READER_META_KEY: &str = "simple";
 pub const SIMPLE_READER_META_KEY_DEFAULT: &str = "default_key";

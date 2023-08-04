@@ -226,7 +226,7 @@ pub fn extract_content_generator<'box_lt, ReaderType: Read + MetaRead + 'box_lt>
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::entities::simple_metadata_reader::{
+    use crate::domain::readers::simple_metadata_reader::{
         SimpleMetadataReader, SIMPLE_READER_META_KEY,
     };
 

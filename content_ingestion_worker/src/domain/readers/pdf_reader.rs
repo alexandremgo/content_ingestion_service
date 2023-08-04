@@ -4,9 +4,7 @@ use lopdf::Document;
 use serde_json::{json, Map, Value as JsonValue};
 use tracing::info;
 
-use crate::helper::error_chain_fmt;
-
-use super::meta_read::MetaRead;
+use crate::{helper::error_chain_fmt, domain::entities::meta_read::MetaRead};
 
 const PDF_READER_META_KEY: &str = "pdf";
 const PDF_READER_META_KEY_DEFAULT_INITIAL: &str = "initial";
