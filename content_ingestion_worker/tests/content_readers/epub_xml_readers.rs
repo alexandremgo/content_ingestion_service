@@ -5,8 +5,8 @@ use std::io::BufReader;
 use std::io::Write;
 use uuid::Uuid;
 
-use content_ingestion_worker::domain::readers::{epub_reader::EpubReader, xml_reader};
 use content_ingestion_worker::domain::extractors::extract_content_generator::extract_content_generator;
+use content_ingestion_worker::domain::readers::{epub_reader::EpubReader, xml_reader};
 
 use crate::helpers::init_test;
 

@@ -42,7 +42,7 @@ impl HuggingFaceEmbeddingsService {
     ///
     /// The message received by this runner contains the sentences to work on
     /// and a sender to communicate the resulting embeddings
-    /// 
+    ///
     /// Currently using all-MiniLM-L12-v2: maps sentences to a 384 dimensional dense vector space
     #[tracing::instrument(name = "Runner", skip(receiver))]
     fn runner(

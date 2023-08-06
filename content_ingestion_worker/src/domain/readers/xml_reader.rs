@@ -3,7 +3,7 @@ use serde_json::{json, Map, Value as JsonValue};
 use std::io::{BufReader, ErrorKind, Read};
 use tracing::debug;
 
-use crate::{helper::error_chain_fmt, domain::entities::meta_read::MetaRead};
+use crate::{domain::entities::meta_read::MetaRead, helper::error_chain_fmt};
 
 #[derive(thiserror::Error)]
 pub enum XMLReaderError {
