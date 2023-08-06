@@ -3,6 +3,8 @@ use regex::Regex;
 
 /// Simple sentences splitter.
 ///
+/// TODO: Not handling correctly content containing code
+///
 /// Simple regex:
 /// - groups sentences finishing by .?! or if reaching the end of the content.
 /// - removes sentences with less than 2 characters (ex: a `!` from several `!!!`)

@@ -16,8 +16,8 @@ use tracing::{error, info, info_span, Instrument};
 use crate::{
     domain::{
         entities::extract_content_job::ExtractContentJob,
-        readers::{epub_reader::EpubReader, xml_reader},
         extractors::extract_content_generator::extract_content_generator,
+        readers::{epub_reader::EpubReader, xml_reader},
     },
     helper::error_chain_fmt,
     repositories::{

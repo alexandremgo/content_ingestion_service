@@ -4,8 +4,6 @@ use embedding_worker::{
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 
-use tracing::info;
-
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let tracing_subscriber =

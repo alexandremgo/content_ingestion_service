@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
 
 use lapin::{
@@ -8,10 +10,13 @@ use lapin::{
     types::FieldTable,
     Connection as RabbitMQConnection, ExchangeKind,
 };
-use tracing::{error, info, info_span, Instrument};
+use tracing::{debug, error, info, info_span, Instrument};
 
 use crate::{
-    domain::entities::extracted_content::ExtractedContent,
+    domain::{
+        entities::extracted_content::ExtractedContent,
+        services::huggingface_embedding::HuggingFaceEmbeddingsService,
+    },
     helper::error_chain_fmt,
     repositories::message_rabbitmq_repository::{
         MessageRabbitMQRepository, MessageRabbitMQRepositoryError,
@@ -43,13 +48,18 @@ impl std::fmt::Debug for RegisterHandlerContentExtractedError {
 /// to avoid sharing some instances (ex: RabbitMQ channel) between each thread
 #[tracing::instrument(
     name = "Register message handler",
-    skip(rabbitmq_consuming_connection, message_rabbitmq_repository)
+    skip(
+        rabbitmq_consuming_connection,
+        message_rabbitmq_repository,
+        embeddings_service
+    )
 )]
 pub async fn register_handler(
     rabbitmq_consuming_connection: RabbitMQConnection,
     exchange_name: String,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
     mut message_rabbitmq_repository: MessageRabbitMQRepository,
+    embeddings_service: Arc<HuggingFaceEmbeddingsService>,
 ) -> Result<(), RegisterHandlerContentExtractedError> {
     let channel = rabbitmq_consuming_connection.create_channel().await?;
 
@@ -101,16 +111,8 @@ pub async fn register_handler(
         )
         .await?;
 
-    // One (for publishing) channel for this collection of handlers
+    // Inits for this specific handler
     message_rabbitmq_repository.try_init().await?;
-    // The fact that we need a collection-wide mutex like this is hinting that there is a problem
-    // Each spawned handler will have to lock this repository to be able to publish.
-    // At least this will limit the usage of the same channel in parallel.
-    // But another solution should be preferable.
-    // Maybe a pool of channels that are behind mutexes and can be reset when needed because one failed ?
-    // Then we limit the number of parallel handlers to the number of available channels.
-    // Or is it better to fail fast and re-start a worker ?
-    // let message_rabbitmq_repository = Arc::new(Mutex::new(message_rabbitmq_repository));
 
     info!(
         "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
@@ -148,7 +150,13 @@ pub async fn register_handler(
 
             info!(?extracted_content, "Received extracted content");
 
-            match execute_handler(&mut message_rabbitmq_repository, &extracted_content).await {
+            match execute_handler(
+                &mut message_rabbitmq_repository,
+                embeddings_service.clone(),
+                &extracted_content,
+            )
+            .await
+            {
                 Ok(()) => {
                     info!(
                         "Acknowledging message with delivery tag {}",
@@ -211,17 +219,19 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 
 #[tracing::instrument(
     name = "Executing handler on extracted content",
-    skip(message_rabbitmq_repository)
+    skip(message_rabbitmq_repository, embeddings_service)
 )]
 pub async fn execute_handler(
     message_rabbitmq_repository: &mut MessageRabbitMQRepository,
+    embeddings_service: Arc<HuggingFaceEmbeddingsService>,
     extracted_content: &ExtractedContent,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
     let ExtractedContent {
         metadata, content, ..
     } = extracted_content;
 
-    info!(?metadata, ?content, "Executing handler");
+    let embeddings = embeddings_service.generate_embeddings(&content).await;
+    info!(?embeddings, "Generated embeddings");
 
     Ok(())
 }

@@ -2,11 +2,15 @@ use std::sync::Arc;
 
 use crate::{
     configuration::{RabbitMQSettings, Settings},
+    domain::services::huggingface_embedding::{
+        HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
+    },
     handlers::handler_content_extracted::{self, RegisterHandlerContentExtractedError},
     repositories::message_rabbitmq_repository::MessageRabbitMQRepository,
 };
 use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
+use rust_bert::pipelines::sentence_embeddings::SentenceEmbeddingsModelType;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -39,14 +43,21 @@ impl Application {
             &rabbitmq_content_exchange_name,
         );
 
+        // The model type could come from the configuration
+        let embeddings_service = HuggingFaceEmbeddingsService::new();
+
         let mut app = Self {
             rabbitmq_publishing_connection,
             rabbitmq_content_exchange_name,
             handlers: vec![],
         };
 
-        app.prepare_message_handlers(rabbitmq_consuming_connection, message_rabbitmq_repository)
-            .await?;
+        app.prepare_message_handlers(
+            rabbitmq_consuming_connection,
+            message_rabbitmq_repository,
+            embeddings_service,
+        )
+        .await?;
 
         Ok(app)
     }
@@ -56,14 +67,21 @@ impl Application {
     /// A "message handler" consumes messages from a (generated) queue bound to with a specific binding key to the given exchange
     #[tracing::instrument(
         name = "Preparing the messages handlers",
-        skip(self, rabbitmq_consuming_connection, message_rabbitmq_repository,)
+        skip(
+            self,
+            rabbitmq_consuming_connection,
+            message_rabbitmq_repository,
+            embeddings_service
+        )
     )]
     pub async fn prepare_message_handlers(
         &mut self,
         rabbitmq_consuming_connection: RabbitMQConnection,
         message_rabbitmq_repository: MessageRabbitMQRepository,
+        embeddings_service: HuggingFaceEmbeddingsService,
     ) -> Result<(), ApplicationError> {
         let exchange_name = self.rabbitmq_content_exchange_name.clone();
+        let embeddings_service = Arc::new(embeddings_service);
 
         // We could have several message handlers running in parallel bound with the same binding key to the same exchange.
         // Or other message handlers bound with a different binding key to the same or another exchange.
@@ -72,6 +90,7 @@ impl Application {
                 rabbitmq_consuming_connection,
                 exchange_name,
                 message_rabbitmq_repository.clone(),
+                embeddings_service.clone(),
             )
             .map_err(|e| e.into()),
         );
@@ -113,4 +132,6 @@ pub enum ApplicationError {
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
     RegisterHandlerContentExtractedError(#[from] RegisterHandlerContentExtractedError),
+    #[error(transparent)]
+    HuggingFaceEmbeddingsServiceError(#[from] HuggingFaceEmbeddingsServiceError),
 }
