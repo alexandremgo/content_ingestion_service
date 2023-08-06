@@ -85,7 +85,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install postgresql-client -y
 
       - name: Migrate Postgres database and setup MinIO 
-        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true ./scripts/init_infra.sh
+        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_QDRANT=true ./scripts/init_infra.sh
 
       - name: Check sqlx-data.json is up-to-date
         run: cargo sqlx prepare --check -- --bin content_ingestion_service
@@ -137,7 +137,7 @@ jobs:
       - name: Install postgresql-client
         run: sudo apt-get update && sudo apt-get install postgresql-client -y
       - name: Migrate database
-        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_MINIO=true ./scripts/init_infra.sh
+        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_MINIO=true SKIP_QDRANT=true ./scripts/init_infra.sh
       - name: Linting
         working-directory: ./content_ingestion_service
         run: cargo clippy --no-deps -- -D warnings

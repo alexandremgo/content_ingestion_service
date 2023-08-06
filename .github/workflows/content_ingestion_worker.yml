@@ -66,7 +66,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Setup MinIO and Meilisearch
-        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_POSTGRES=true ./scripts/init_infra.sh
+        run: cd .. && SKIP_DOCKER=true SKIP_POSTGRES=true SKIP_QDRANT=true ./scripts/init_infra.sh
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test

@@ -23,11 +23,11 @@ services:
     image: rabbitmq:3.12.0-management
     container_name: rabbitmq
     ports:
-      - '5672:5672'
-      - '15672:15672'
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
     restart: unless-stopped
 
   postgres:
@@ -46,12 +46,21 @@ services:
     image: getmeili/meilisearch:v1.2.0
     container_name: meilisearch
     ports:
-      - '7700:7700'
+      - "${MEILI_PORT}:7700"
     environment:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - MEILI_NO_ANALYTICS=${MEILI_NO_ANALYTICS}
     volumes:
-      - ./data.ms:/data.ms
+      - ./.data/data.ms:/data.ms
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.4.0
+    container_name: qdrant
+    ports:
+      - "${QDRANT_PORT}:6333"
+    volumes:
+      - ./.data/qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
 volumes:

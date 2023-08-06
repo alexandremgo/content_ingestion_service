@@ -50,16 +50,24 @@ export OBJECT_STORAGE_SITE_REGION="${MINIO_SITE_REGION:=eu-fr-1}"
 export OBJECT_STORAGE_SITE_NAME="${MINIO_SITE_NAME:=par-rack-1}"
 
 # RabbitMQ env variables:
-export RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:=guest}
-export RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:=guest}
+export RABBITMQ_DEFAULT_USER="${RABBITMQ_DEFAULT_USER:=guest}"
+export RABBITMQ_DEFAULT_PASS="${RABBITMQ_DEFAULT_PASS:=guest}"
+export RABBITMQ_MANAGEMENT_PORT="${RABBITMQ_MANAGEMENT_PORT:=15672}"
+export RABBITMQ_PORT="${RABBITMQ_PORT:=5672}"
 
 # Meilisearch env variables
-export MEILI_PORT=${MEILI_PORT:=7700}
-export MEILI_MASTER_KEY=${MEILI_MASTER_KEY:=masterkey}
-export MEILI_NO_ANALYTICS=${MEILI_NO_ANALYTICS:=true}
+export MEILI_PORT="${MEILI_PORT:=7700}"
+export MEILI_MASTER_KEY="${MEILI_MASTER_KEY:=masterkey}"
+export MEILI_NO_ANALYTICS="${MEILI_NO_ANALYTICS:=true}"
 # Not scalable if several Meilisearch indexes. We might create "migration" using an empty dump file.
-export MEILI_EXTRACTED_CONTENT_INDEX="extracted_contents"
-export MEILI_EXTRACTED_CONTENT_PRIMARY_KEY="id"
+export MEILI_INDEX_NAME="${MEILI_INDEX_NAME:=extracted_contents}"
+export MEILI_PRIMARY_KEY="${MEILI_PRIMARY_KEY:=id}"
+
+# Qdrant env variables
+export QDRANT_PORT="${QDRANT_PORT:=6333}"
+export QDRANT_COLLECTION_VECTOR_SIZE="${QDRANT_COLLECTION_VECTOR_SIZE:=384}"
+export QDRANT_COLLECTION_DISTANCE="${QDRANT_COLLECTION_DISTANCE:=Dot}"
+export QDRANT_COLLECTION_NAME="contents"
 
 # Docker step - allowed to skip if a containers are already running
 if [[ -z "${SKIP_DOCKER}" ]]
@@ -115,7 +123,7 @@ then
   curl -X POST "http://localhost:${MEILI_PORT}/indexes" \
     -H 'Content-Type: application/json' \
     -H 'Authorization: Bearer masterkey' \
-    --data-binary "{ \"uid\": \"${MEILI_EXTRACTED_CONTENT_INDEX}\", \"primaryKey\": \"${MEILI_EXTRACTED_CONTENT_PRIMARY_KEY}\" }"
+    --data-binary "{ \"uid\": \"${MEILI_INDEX_NAME}\", \"primaryKey\": \"${MEILI_PRIMARY_KEY}\" }"
 fi
 
 # Postgres setup - allowed to skip if not needed
@@ -190,4 +198,33 @@ then
   done
 
   echo "🏭 MinIO has been set up, ready to go!"
+fi
+
+# Qdrant setup - allowed to skip if not needed
+if [[ -z "${SKIP_QDRANT}" ]]
+then
+  max_attempts=10
+  # Keeps pinging Qdrant until it's ready to accept commands or reaches the maximum number of attempts
+  for ((attempt=0; attempt < max_attempts; attempt++)); do
+    if curl -X GET "http://localhost:${QDRANT_PORT}" >/dev/null 2>&1; then
+      echo "✅ Qdrant is now available on port ${MEILI_PORT} 🎉"
+      break
+    else
+      >&2 echo "🛌 Qdrant is still unavailable - sleeping"
+      sleep 1
+    fi
+  done
+
+  if [ $attempt -ge $max_attempts ]; then
+    >&2 echo "⛔ Maximum numbee of attempts ($max_attempts) reached. Qdrant is still unavailable."
+    exit 1
+  fi
+
+  # Sets up the Qdrant collections
+  echo "🛠️ Setting up the Qdrant collections"
+
+  # Creates the Meilisearch indexes
+  curl -X PUT "http://localhost:${QDRANT_PORT}/collections/${QDRANT_COLLECTION_NAME}" \
+    -H 'Content-Type: application/json' \
+    --data-raw "{ \"vectors\": { \"size\": ${QDRANT_COLLECTION_VECTOR_SIZE}, \"distance\": \"${QDRANT_COLLECTION_DISTANCE}\" } }"
 fi

@@ -4,3 +4,5 @@
 /content_ingestion_worker/tests/resources/local/*
 /content_ingestion_worker/tests/resources/results/*
 !/content_ingestion_worker/tests/resources/results/.keep
+
+.data/
