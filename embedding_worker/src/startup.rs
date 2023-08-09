@@ -1,15 +1,21 @@
 use std::sync::Arc;
 
 use crate::{
-    configuration::{RabbitMQSettings, Settings},
+    configuration::{QdrantSettings, RabbitMQSettings, Settings},
     domain::services::huggingface_embedding::{
         HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
     },
     handlers::handler_content_extracted::{self, RegisterHandlerContentExtractedError},
-    repositories::message_rabbitmq_repository::MessageRabbitMQRepository,
+    repositories::{
+        content_point_qdrant_repository::{
+            ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
+        },
+        message_rabbitmq_repository::MessageRabbitMQRepository,
+    },
 };
 use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
+use qdrant_client::prelude::{QdrantClient, QdrantClientConfig};
 use rust_bert::pipelines::sentence_embeddings::SentenceEmbeddingsModelType;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
@@ -43,6 +49,20 @@ impl Application {
             &rabbitmq_content_exchange_name,
         );
 
+        // TODO: Qdrant client is using grpc channel (?): should we have 1 channel per thread ?
+        // And do the same initialization than with RabbitMQ ?
+        // If use Qdrant during integration test: create several qdrant client
+        let qdrant_client = get_qdrant_client(&settings.qdrant)?;
+        let content_point_qdrant_repository = ContentPointQdrantRepository::try_new(
+            qdrant_client,
+            &settings.qdrant.collection,
+            &settings.qdrant.collection_distance,
+            settings.qdrant.collection_vector_size,
+        )
+        .await?;
+        // Sharing the same qdrant repository with parallel handlers/threads
+        let content_point_qdrant_repository = Arc::new(content_point_qdrant_repository);
+
         // The model type could come from the configuration
         let embeddings_service = HuggingFaceEmbeddingsService::new();
 
@@ -55,6 +75,7 @@ impl Application {
         app.prepare_message_handlers(
             rabbitmq_consuming_connection,
             message_rabbitmq_repository,
+            content_point_qdrant_repository,
             embeddings_service,
         )
         .await?;
@@ -71,6 +92,7 @@ impl Application {
             self,
             rabbitmq_consuming_connection,
             message_rabbitmq_repository,
+            content_point_qdrant_repository,
             embeddings_service
         )
     )]
@@ -78,6 +100,7 @@ impl Application {
         &mut self,
         rabbitmq_consuming_connection: RabbitMQConnection,
         message_rabbitmq_repository: MessageRabbitMQRepository,
+        content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
         embeddings_service: HuggingFaceEmbeddingsService,
     ) -> Result<(), ApplicationError> {
         let exchange_name = self.rabbitmq_content_exchange_name.clone();
@@ -90,6 +113,7 @@ impl Application {
                 rabbitmq_consuming_connection,
                 exchange_name,
                 message_rabbitmq_repository.clone(),
+                content_point_qdrant_repository.clone(),
                 embeddings_service.clone(),
             )
             .map_err(|e| e.into()),
@@ -124,6 +148,12 @@ pub async fn get_rabbitmq_connection(
     RabbitMQConnection::connect(&config.get_uri(), config.get_connection_properties()).await
 }
 
+/// Set up a client to Qdrant
+pub fn get_qdrant_client(config: &QdrantSettings) -> Result<QdrantClient, ApplicationError> {
+    let qdrant_config = QdrantClientConfig::from_url(&config.get_grpc_base_url());
+    QdrantClient::new(Some(qdrant_config)).map_err(|e| ApplicationError::QdrantError(e.to_string()))
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum ApplicationError {
     #[error(transparent)]
@@ -134,4 +164,8 @@ pub enum ApplicationError {
     RegisterHandlerContentExtractedError(#[from] RegisterHandlerContentExtractedError),
     #[error(transparent)]
     HuggingFaceEmbeddingsServiceError(#[from] HuggingFaceEmbeddingsServiceError),
+    #[error("Error from Qdrant: {0}")]
+    QdrantError(String),
+    #[error(transparent)]
+    ContentPointQdrantRepositoryError(#[from] ContentPointQdrantRepositoryError),
 }

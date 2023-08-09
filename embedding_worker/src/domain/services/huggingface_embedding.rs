@@ -10,7 +10,10 @@ use std::{
 };
 use tokio::{sync::oneshot, task};
 
-use crate::{domain::services::helpers::split_sentences, helper::error_chain_fmt};
+use crate::{
+    domain::{entities::content_point::Embeddings, services::helpers::split_sentences},
+    helper::error_chain_fmt,
+};
 
 /// Service to generate embeddings from a text content, using models available from Hugging Face.
 ///
@@ -101,6 +104,5 @@ impl std::fmt::Debug for HuggingFaceEmbeddingsServiceError {
     }
 }
 
-type Embeddings = Vec<f32>;
 /// Message type for internal channel, passing around input sentences and generated embeddings
 type RunnerMessage = (Vec<String>, oneshot::Sender<Vec<Embeddings>>);

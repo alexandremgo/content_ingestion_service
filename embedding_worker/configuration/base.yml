@@ -4,3 +4,9 @@ application:
 rabbitmq:
   port: 5672
   content_exchange: "content"
+
+qdrant:
+  rest_port: 6333
+  grpc_port: 6334
+  collection_vector_size: 384
+  collection_distance: "Dot"

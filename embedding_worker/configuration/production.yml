@@ -4,3 +4,7 @@ application:
 rabbitmq:
   host: "rabbitmq"
   exchange_name_prefix: prod
+
+drant:
+  host: "qdrant"
+  collection: "prod-contents"

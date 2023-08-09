@@ -11,4 +11,4 @@ rabbitmq:
 
 meilisearch:
   port: 7700
-  extracted_content_index: extracted_contents
+  extracted_content_index: "extracted_contents"

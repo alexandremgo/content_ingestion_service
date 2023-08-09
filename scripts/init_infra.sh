@@ -64,10 +64,11 @@ export MEILI_INDEX_NAME="${MEILI_INDEX_NAME:=extracted_contents}"
 export MEILI_PRIMARY_KEY="${MEILI_PRIMARY_KEY:=id}"
 
 # Qdrant env variables
-export QDRANT_PORT="${QDRANT_PORT:=6333}"
+export QDRANT_REST_PORT="${QDRANT_REST_PORT:=6333}"
+export QDRANT_GRPC_PORT="${QDRANT_GRPC_PORT:=6334}"
 export QDRANT_COLLECTION_VECTOR_SIZE="${QDRANT_COLLECTION_VECTOR_SIZE:=384}"
 export QDRANT_COLLECTION_DISTANCE="${QDRANT_COLLECTION_DISTANCE:=Dot}"
-export QDRANT_COLLECTION_NAME="contents"
+export QDRANT_COLLECTION_NAME="${QDRANT_COLLECTION_NAME:=local-contents}"
 
 # Docker step - allowed to skip if a containers are already running
 if [[ -z "${SKIP_DOCKER}" ]]
@@ -206,7 +207,7 @@ then
   max_attempts=10
   # Keeps pinging Qdrant until it's ready to accept commands or reaches the maximum number of attempts
   for ((attempt=0; attempt < max_attempts; attempt++)); do
-    if curl -X GET "http://localhost:${QDRANT_PORT}" >/dev/null 2>&1; then
+    if curl -X GET "http://localhost:${QDRANT_REST_PORT}" >/dev/null 2>&1; then
       echo "✅ Qdrant is now available on port ${MEILI_PORT} 🎉"
       break
     else
@@ -224,7 +225,7 @@ then
   echo "🛠️ Setting up the Qdrant collections"
 
   # Creates the Meilisearch indexes
-  curl -X PUT "http://localhost:${QDRANT_PORT}/collections/${QDRANT_COLLECTION_NAME}" \
+  curl -X PUT "http://localhost:${QDRANT_REST_PORT}/collections/${QDRANT_COLLECTION_NAME}" \
     -H 'Content-Type: application/json' \
     --data-raw "{ \"vectors\": { \"size\": ${QDRANT_COLLECTION_VECTOR_SIZE}, \"distance\": \"${QDRANT_COLLECTION_DISTANCE}\" } }"
 fi

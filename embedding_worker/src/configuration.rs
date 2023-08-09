@@ -6,6 +6,7 @@ use serde_aux::field_attributes::deserialize_number_from_string;
 pub struct Settings {
     pub application: ApplicationSettings,
     pub rabbitmq: RabbitMQSettings,
+    pub qdrant: QdrantSettings,
 }
 
 // TODO: do we need to define a host and port for the workers ?
@@ -40,6 +41,23 @@ impl RabbitMQSettings {
             // At the moment the reactor is only available for unix.
             .with_executor(tokio_executor_trait::Tokio::current())
             .with_reactor(tokio_reactor_trait::Tokio)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct QdrantSettings {
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub rest_port: u16,
+    pub grpc_port: u16,
+    pub host: String,
+    pub collection: String,
+    pub collection_distance: String,
+    pub collection_vector_size: u64,
+}
+
+impl QdrantSettings {
+    pub fn get_grpc_base_url(&self) -> String {
+        format!("http://{}:{}", &self.host, &self.grpc_port)
     }
 }
 

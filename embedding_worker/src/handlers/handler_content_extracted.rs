@@ -11,15 +11,24 @@ use lapin::{
     Connection as RabbitMQConnection, ExchangeKind,
 };
 use tracing::{debug, error, info, info_span, Instrument};
+use uuid::Uuid;
 
 use crate::{
     domain::{
-        entities::extracted_content::ExtractedContent,
-        services::huggingface_embedding::HuggingFaceEmbeddingsService,
+        entities::{
+            content_point::{self, ContentPoint, ContentPointPayload},
+            extracted_content::ExtractedContent,
+        },
+        services::huggingface_embedding::{
+            HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
+        },
     },
     helper::error_chain_fmt,
-    repositories::message_rabbitmq_repository::{
-        MessageRabbitMQRepository, MessageRabbitMQRepositoryError,
+    repositories::{
+        content_point_qdrant_repository::{
+            ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
+        },
+        message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
     },
 };
 
@@ -51,6 +60,7 @@ impl std::fmt::Debug for RegisterHandlerContentExtractedError {
     skip(
         rabbitmq_consuming_connection,
         message_rabbitmq_repository,
+        content_point_qdrant_repository,
         embeddings_service
     )
 )]
@@ -59,6 +69,7 @@ pub async fn register_handler(
     exchange_name: String,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
     mut message_rabbitmq_repository: MessageRabbitMQRepository,
+    content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
     embeddings_service: Arc<HuggingFaceEmbeddingsService>,
 ) -> Result<(), RegisterHandlerContentExtractedError> {
     let channel = rabbitmq_consuming_connection.create_channel().await?;
@@ -152,6 +163,7 @@ pub async fn register_handler(
 
             match execute_handler(
                 &mut message_rabbitmq_repository,
+                content_point_qdrant_repository.clone(),
                 embeddings_service.clone(),
                 &extracted_content,
             )
@@ -209,6 +221,10 @@ pub async fn register_handler(
 pub enum ExecuteHandlerContentExtractedError {
     #[error(transparent)]
     MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    #[error(transparent)]
+    HuggingFaceEmbeddingsServiceError(#[from] HuggingFaceEmbeddingsServiceError),
+    #[error(transparent)]
+    ContentPointQdrantRepositoryError(#[from] ContentPointQdrantRepositoryError),
 }
 
 impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
@@ -219,10 +235,15 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 
 #[tracing::instrument(
     name = "Executing handler on extracted content",
-    skip(message_rabbitmq_repository, embeddings_service)
+    skip(
+        message_rabbitmq_repository,
+        content_point_qdrant_repository,
+        embeddings_service
+    )
 )]
 pub async fn execute_handler(
     message_rabbitmq_repository: &mut MessageRabbitMQRepository,
+    content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
     embeddings_service: Arc<HuggingFaceEmbeddingsService>,
     extracted_content: &ExtractedContent,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
@@ -230,8 +251,26 @@ pub async fn execute_handler(
         metadata, content, ..
     } = extracted_content;
 
-    let embeddings = embeddings_service.generate_embeddings(&content).await;
-    info!(?embeddings, "Generated embeddings");
+    let embeddings_list = embeddings_service.generate_embeddings(&content).await?;
 
+    // Extracted content for all the generated embeddings from content sentences ?
+    let content_points: Vec<ContentPoint> = embeddings_list
+        .iter()
+        .map(|embeddings| ContentPoint {
+            id: Uuid::new_v4(),
+            vector: embeddings.to_vec(),
+            payload: ContentPointPayload {
+                content: content.to_string(),
+            },
+        })
+        .collect();
+
+    info!(?content_points, "Generated embeddings");
+
+    content_point_qdrant_repository
+        .batch_save(content_points)
+        .await?;
+
+    info!("Successfully handled extract_content_job message");
     Ok(())
 }

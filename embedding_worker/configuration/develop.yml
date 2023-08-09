@@ -4,3 +4,7 @@ application:
 rabbitmq:
   host: 127.0.0.1
   exchange_name_prefix: local
+
+qdrant:
+  host: 127.0.0.1
+  collection: "local-contents"

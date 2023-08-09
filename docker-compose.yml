@@ -57,8 +57,11 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.4.0
     container_name: qdrant
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=${QDRANT_GRPC_PORT}
     ports:
-      - "${QDRANT_PORT}:6333"
+      - "${QDRANT_REST_PORT}:6333"
+      - "${QDRANT_GRPC_PORT}:6334"
     volumes:
       - ./.data/qdrant_storage:/qdrant/storage
     restart: unless-stopped
