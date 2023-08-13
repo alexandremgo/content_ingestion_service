@@ -60,7 +60,7 @@ export MEILI_PORT="${MEILI_PORT:=7700}"
 export MEILI_MASTER_KEY="${MEILI_MASTER_KEY:=masterkey}"
 export MEILI_NO_ANALYTICS="${MEILI_NO_ANALYTICS:=true}"
 # Not scalable if several Meilisearch indexes. We might create "migration" using an empty dump file.
-export MEILI_INDEX_NAME="${MEILI_INDEX_NAME:=extracted_contents}"
+export MEILI_INDEX_NAME="${MEILI_INDEX_NAME:=contents}"
 export MEILI_PRIMARY_KEY="${MEILI_PRIMARY_KEY:=id}"
 
 # Qdrant env variables

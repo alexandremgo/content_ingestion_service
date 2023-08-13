@@ -1,14 +1,4 @@
-use std::sync::Arc;
-
-use common::{
-    core::rabbitmq_message_repository::{
-        RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
-    },
-    dtos::extracted_content::ExtractedContentDto,
-    helper::error_chain_fmt,
-};
 use futures::StreamExt;
-
 use lapin::{
     options::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
@@ -17,10 +7,22 @@ use lapin::{
     types::FieldTable,
     Connection as RabbitMQConnection, ExchangeKind,
 };
-use tracing::{debug, error, info, info_span, Instrument};
-use uuid::Uuid;
+use std::sync::Arc;
+use tracing::{error, info, info_span, Instrument};
 
-use crate::repositories::meilisearch_content_repository::MeilisearchContentRepository;
+use crate::{
+    domain::entities::content::ContentEntity,
+    repositories::meilisearch_content_repository::{
+        MeilisearchContentRepository, MeilisearchContentRepositoryError,
+    },
+};
+use common::{
+    core::rabbitmq_message_repository::{
+        RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
+    },
+    dtos::extracted_content::ExtractedContentDto,
+    helper::error_chain_fmt,
+};
 
 pub const ROUTING_KEY: &str = "content_extracted.v1";
 
@@ -145,7 +147,7 @@ pub async fn register_handler(
             match execute_handler(
                 &mut message_repository,
                 content_repository.clone(),
-                &extracted_content,
+                extracted_content,
             )
             .await
             {
@@ -155,19 +157,11 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
-                        error!(
-                            ?error,
-                            ?extracted_content,
-                            "Failed to ack extract_content_job message"
-                        );
+                        error!(?error, "Failed to ack extract_content_job message");
                     }
                 }
                 Err(error) => {
-                    error!(
-                        ?error,
-                        ?extracted_content,
-                        "Failed to handle extract_content_job message"
-                    );
+                    error!(?error, "Failed to handle extract_content_job message");
 
                     // TODO: maybe depending on the error we could reject the message and not just nack
                     info!(
@@ -175,11 +169,7 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
-                        error!(
-                            ?error,
-                            ?extracted_content,
-                            "Failed to nack extracted content message"
-                        );
+                        error!(?error, "Failed to nack extracted content message");
                     }
                 }
             }
@@ -201,6 +191,8 @@ pub async fn register_handler(
 pub enum ExecuteHandlerContentExtractedError {
     #[error(transparent)]
     RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
+    #[error(transparent)]
+    MeilisearchContentRepositoryError(#[from] MeilisearchContentRepositoryError),
 }
 
 impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
@@ -216,29 +208,13 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 pub async fn execute_handler(
     message_repository: &mut RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
-    extracted_content: &ExtractedContentDto,
+    extracted_content: ExtractedContentDto,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
-    let ExtractedContentDto {
-        metadata, content, ..
-    } = extracted_content;
+    let content: ContentEntity = extracted_content.into();
+    content_repository.save(&content).await?;
 
-    // // Extracted content for all the generated embeddings from content sentences ?
-    // let content_points: Vec<ContentPoint> = embeddings_list
-    //     .iter()
-    //     .map(|embeddings| ContentPoint {
-    //         id: Uuid::new_v4(),
-    //         vector: embeddings.to_vec(),
-    //         payload: ContentPointPayload {
-    //             content: content.to_string(),
-    //         },
-    //     })
-    //     .collect();
-
-    // info!(?content_points, "Generated embeddings");
-
-    // content_point_qdrant_repository
-    //     .batch_save(content_points)
-    //     .await?;
+    // Could publish a confirmation message to inform about progress ?
+    // message_repository.publish("content_fulltext_saved.v1");
 
     info!("Successfully handled extract_content_job message");
     Ok(())
