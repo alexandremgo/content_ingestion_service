@@ -11,7 +11,3 @@ object_storage:
 rabbitmq:
   host: "rabbitmq"
   exchange_name_prefix: prod
-
-meilisearch:
-  host: "meilisearch"
-  api_key: "masterkey"
