@@ -7,4 +7,4 @@ rabbitmq:
 
 qdrant:
   host: "qdrant"
-  collection: "local-contents"
+  collection: "local_contents"
