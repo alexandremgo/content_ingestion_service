@@ -5,4 +5,5 @@ members = [
     "content_ingestion_service",
     "content_ingestion_worker",
     "embedding_worker",
+    "fulltext_search_service",
 ]

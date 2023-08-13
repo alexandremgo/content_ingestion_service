@@ -1,0 +1,10 @@
+application:
+  host: 127.0.0.1
+
+rabbitmq:
+  host: 127.0.0.1
+  exchange_name_prefix: local
+
+meilisearch:
+  host: 127.0.0.1
+  api_key: "masterkey"
