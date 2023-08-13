@@ -97,7 +97,7 @@ impl RabbitMQMessageRepository {
     /// * `routing_key` - routing key to publish the message to
     /// * `data` - Data to publish
     #[tracing::instrument(name = "Publishing message", skip(self))]
-    async fn publish(
+    pub async fn publish(
         &mut self,
         routing_key: &str,
         data: &[u8],
