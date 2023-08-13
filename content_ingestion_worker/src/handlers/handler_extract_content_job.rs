@@ -21,9 +21,6 @@ use crate::{
     },
     helper::error_chain_fmt,
     repositories::{
-        extracted_content_meilisearch_repository::{
-            ExtractedContentMeilisearchRepository, ExtractedContentMeilisearchRepositoryError,
-        },
         message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
         source_file_s3_repository::{S3Repository, S3RepositoryError},
     },
@@ -57,7 +54,6 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
     skip(
         rabbitmq_consuming_connection,
         s3_repository,
-        extracted_content_meilisearch_repository,
         message_rabbitmq_repository
     )
 )]
@@ -65,7 +61,6 @@ pub async fn register_handler(
     rabbitmq_consuming_connection: RabbitMQConnection,
     exchange_name: String,
     s3_repository: Arc<S3Repository>,
-    extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
     mut message_rabbitmq_repository: MessageRabbitMQRepository,
 ) -> Result<(), RegisterHandlerExtractContentJobError> {
@@ -168,7 +163,6 @@ pub async fn register_handler(
 
             match execute_handler(
                 s3_repository.clone(),
-                extracted_content_meilisearch_repository.clone(),
                 &mut message_rabbitmq_repository,
                 &extract_content_job,
             )
@@ -227,8 +221,6 @@ pub enum ExecuteHandlerExtractContentJobError {
     #[error(transparent)]
     S3RepositoryError(#[from] S3RepositoryError),
     #[error(transparent)]
-    ExtractedContentMeilisearchRepositoryError(#[from] ExtractedContentMeilisearchRepositoryError),
-    #[error(transparent)]
     MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
 }
 
@@ -242,13 +234,11 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
     name = "Executing handler on extract content job",
     skip(
         s3_repository,
-        extracted_content_meilisearch_repository,
         message_rabbitmq_repository
     )
 )]
 pub async fn execute_handler(
     s3_repository: Arc<S3Repository>,
-    extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
     message_rabbitmq_repository: &mut MessageRabbitMQRepository,
     job: &ExtractContentJob,
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
@@ -295,11 +285,6 @@ pub async fn execute_handler(
             "Extracted content {i}: {}\n{}\n-----\n",
             extracted_content.metadata, extracted_content.content
         );
-
-        // We could decide to continue if we persist the extracted content in more than 1 service.
-        extracted_content_meilisearch_repository
-            .save(&extracted_content)
-            .await?;
 
         message_rabbitmq_repository
             .publish_content_extracted(&extracted_content)

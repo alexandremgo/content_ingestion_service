@@ -1,17 +1,15 @@
 use std::sync::Arc;
 
 use crate::{
-    configuration::{MeilisearchSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
+    configuration::{ObjectStorageSettings, RabbitMQSettings, Settings},
     handlers::handler_extract_content_job::{self, RegisterHandlerExtractContentJobError},
     repositories::{
-        extracted_content_meilisearch_repository::ExtractedContentMeilisearchRepository,
         message_rabbitmq_repository::MessageRabbitMQRepository,
         source_file_s3_repository::S3Repository,
     },
 };
 use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
-use meilisearch_sdk::Client as MeilisearchClient;
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use tokio::task::JoinHandle;
@@ -26,9 +24,6 @@ pub struct Application {
     // S3
     // Used for integration tests
     s3_bucket: Bucket,
-
-    // Meilisearch
-    meilisearch_client: MeilisearchClient,
 
     // handlers: Vec<Box<dyn Future<Output = Result<(), ApplicationError>>>>,
     handlers: Vec<JoinHandle<Result<(), ApplicationError>>>,
@@ -59,20 +54,10 @@ impl Application {
         // Sharing the same S3 repository with parallel handlers/threads
         let s3_repository = Arc::new(s3_repository);
 
-        let meilisearch_client = get_meilisearch_client(&settings.meilisearch);
-        let extracted_content_meilisearch_repository = ExtractedContentMeilisearchRepository::new(
-            meilisearch_client.clone(),
-            settings.meilisearch.extracted_content_index,
-        );
-        // Sharing the same meilisearch repository with parallel handlers/threads
-        let extracted_content_meilisearch_repository =
-            Arc::new(extracted_content_meilisearch_repository);
-
         let mut app = Self {
             rabbitmq_publishing_connection,
             rabbitmq_content_exchange_name,
             s3_bucket,
-            meilisearch_client,
             handlers: vec![],
         };
 
@@ -80,7 +65,6 @@ impl Application {
             rabbitmq_consuming_connection,
             message_rabbitmq_repository,
             s3_repository,
-            extracted_content_meilisearch_repository,
         )
         .await?;
 
@@ -97,7 +81,6 @@ impl Application {
             rabbitmq_consuming_connection,
             message_rabbitmq_repository,
             s3_repository,
-            extracted_content_meilisearch_repository
         )
     )]
     pub async fn prepare_message_handlers(
@@ -105,7 +88,6 @@ impl Application {
         rabbitmq_consuming_connection: RabbitMQConnection,
         message_rabbitmq_repository: MessageRabbitMQRepository,
         s3_repository: Arc<S3Repository>,
-        extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
     ) -> Result<(), ApplicationError> {
         let s3_repository = s3_repository.clone();
         let exchange_name = self.rabbitmq_content_exchange_name.clone();
@@ -117,7 +99,6 @@ impl Application {
                 rabbitmq_consuming_connection,
                 exchange_name,
                 s3_repository,
-                extracted_content_meilisearch_repository.clone(),
                 message_rabbitmq_repository.clone(),
             )
             .map_err(|e| e.into()),
@@ -270,11 +251,6 @@ pub async fn set_up_s3(settings: &ObjectStorageSettings) -> Result<Bucket, Appli
         settings.bucket_name
     );
     Ok(bucket)
-}
-
-/// Set up a client to Meilisearch
-pub fn get_meilisearch_client(config: &MeilisearchSettings) -> MeilisearchClient {
-    MeilisearchClient::new(config.endpoint(), Some(config.api_key.expose_secret()))
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -262,14 +262,6 @@ pub async fn spawn_app() -> TestApp {
         //   to avoid concurrent tests trying to create the same bucket at the same time
         c.object_storage.bucket_name = "integration-tests-bucket".to_string();
 
-        // Meilisearch indexes can be created implicitly (when trying to add a document to an index that does not exist).
-        // Using this property to isolate tests.
-        c.meilisearch.extracted_content_index = format!(
-            "integration_test_index_{}_{}",
-            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
-            Uuid::new_v4()
-        );
-
         c
     };
 
