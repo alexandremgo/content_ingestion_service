@@ -56,7 +56,7 @@ pub async fn register_handler(
     exchange_name: String,
     queue_name_prefix: String,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
-    mut message_repository: RabbitMQMessageRepository,
+    message_repository: RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
 ) -> Result<(), RegisterHandlerContentExtractedError> {
     let channel = rabbitmq_consuming_connection.create_channel().await?;
@@ -109,7 +109,7 @@ pub async fn register_handler(
         .await?;
 
     // Inits for this specific handler
-    message_repository.try_init().await?;
+    let message_repository = message_repository.try_init().await?;
 
     info!(
         "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
@@ -145,7 +145,7 @@ pub async fn register_handler(
             info!(?extracted_content, "Received extracted content");
 
             match execute_handler(
-                &mut message_repository,
+                &message_repository,
                 content_repository.clone(),
                 extracted_content,
             )
@@ -193,6 +193,8 @@ pub enum ExecuteHandlerContentExtractedError {
     RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
     #[error(transparent)]
     MeilisearchContentRepositoryError(#[from] MeilisearchContentRepositoryError),
+    #[error("Error while serializing message data: {0}")]
+    JsonError(#[from] serde_json::Error),
 }
 
 impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
@@ -206,15 +208,20 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
     skip(message_repository, content_repository,)
 )]
 pub async fn execute_handler(
-    message_repository: &mut RabbitMQMessageRepository,
+    message_repository: &RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
     extracted_content: ExtractedContentDto,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
     let content: ContentEntity = extracted_content.into();
     content_repository.save(&content).await?;
 
-    // Could publish a confirmation message to inform about progress ?
-    // message_repository.publish("content_fulltext_saved.v1");
+    // To inform on progress. Not used currently.
+    message_repository
+        .publish(
+            "content_fulltext_saved.v1",
+            serde_json::to_string(&content)?.as_bytes(),
+        )
+        .await?;
 
     info!("Successfully handled extract_content_job message");
     Ok(())

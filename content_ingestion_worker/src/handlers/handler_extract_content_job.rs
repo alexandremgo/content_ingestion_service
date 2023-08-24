@@ -232,10 +232,7 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
 
 #[tracing::instrument(
     name = "Executing handler on extract content job",
-    skip(
-        s3_repository,
-        message_rabbitmq_repository
-    )
+    skip(s3_repository, message_rabbitmq_repository)
 )]
 pub async fn execute_handler(
     s3_repository: Arc<S3Repository>,

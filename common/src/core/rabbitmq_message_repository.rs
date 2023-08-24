@@ -14,14 +14,22 @@ use crate::helper::error_chain_fmt;
 /// Message repository implemented with RabbitMQ
 ///
 /// To publish messages from a service to a given exchange
-pub struct RabbitMQMessageRepository {
-    /// RabbitMQ connection shared with other objects in different threads
-    connection: Arc<Connection>,
-    /// RabbitMQ channel should not be shared between threads
-    /// The channel is wrapped into a "container" that handles its lazy initialization
-    /// (so one channel can be created for each thread)
-    channel_container: ChannelContainer,
-    exchange_name: String,
+/// 
+/// The enum definition gatekeeps functionalities if the repository is not ready (not initialized).
+pub enum RabbitMQMessageRepository {
+    Ready {
+        /// RabbitMQ connection shared with other objects in different threads
+        connection: Arc<Connection>,
+        /// RabbitMQ channel should not be shared between threads, and is created for each thread
+        /// (so one channel can be created for each thread)
+        channel: Channel,
+        exchange_name: String,
+    },
+    Idle {
+        /// RabbitMQ connection shared with other objects in different threads
+        connection: Arc<Connection>,
+        exchange_name: String,
+    },
 }
 
 pub const CONTENT_EXTRACTED_MESSAGE_KEY: &str = "content_extracted.v1";
@@ -31,11 +39,22 @@ pub const CONTENT_EXTRACTED_MESSAGE_KEY: &str = "content_extracted.v1";
 /// The channel is not cloned because it is not thread safe
 impl Clone for RabbitMQMessageRepository {
     /// Only clones the inner RabbitMQ connection and primitive properties, not the RabbitMQ channel.
+    /// The cloned Repository is in the idle state, waiting for an initialization.
     fn clone(&self) -> Self {
-        Self {
-            connection: self.connection.clone(),
-            channel_container: ChannelContainer::new(),
-            exchange_name: self.exchange_name.clone(),
+        match self {
+            Self::Idle {
+                connection,
+                exchange_name,
+                ..
+            }
+            | Self::Ready {
+                connection,
+                exchange_name,
+                ..
+            } => Self::Idle {
+                connection: connection.clone(),
+                exchange_name: exchange_name.clone(),
+            },
         }
     }
 }
@@ -49,9 +68,8 @@ impl RabbitMQMessageRepository {
     ///
     /// This constructor can be called before spawning threads using this repository
     pub fn new(connection: Arc<Connection>, exchange_name: &str) -> Self {
-        Self {
+        Self::Idle {
             connection,
-            channel_container: ChannelContainer::new(),
             exchange_name: exchange_name.to_string(),
         }
     }
@@ -63,32 +81,53 @@ impl RabbitMQMessageRepository {
     /// Initializes a RabbitMQ channel and declared the exchange to which this
     /// repository will be associated
     #[tracing::instrument(name = "🏗️ Initializing MessageRabbitMQRepository", skip(self))]
-    pub async fn try_init(&mut self) -> Result<(), RabbitMQMessageRepositoryError> {
-        let channel = self.channel_container.get_channel(&self.connection).await?;
+    pub async fn try_init(self) -> Result<Self, RabbitMQMessageRepositoryError> {
+        if let Self::Ready { .. } = self {
+            info!("Already initialized",);
+            return Ok(self);
+        }
 
-        // The options could be defined in the configuration in the future,
-        // and passed inside the `new` constructor.
-        let exchange_declare_options = ExchangeDeclareOptions {
-            durable: true,
-            ..ExchangeDeclareOptions::default()
-        };
+        match self {
+            Self::Ready { .. } => {
+                info!("Already initialized",);
+                return Ok(self);
+            }
 
-        // Idempotent
-        channel
-            .exchange_declare(
-                self.exchange_name.as_str(),
-                ExchangeKind::Topic,
-                exchange_declare_options,
-                FieldTable::default(),
-            )
-            .await?;
+            Self::Idle {
+                connection,
+                exchange_name,
+            } => {
+                let channel = connection.create_channel().await?;
 
-        info!(
-            "Successfully declared exchange {} with properties: {:?}",
-            self.exchange_name, exchange_declare_options
-        );
+                // The options could be defined in the configuration in the future,
+                // and passed inside the `new` constructor.
+                let exchange_declare_options = ExchangeDeclareOptions {
+                    durable: true,
+                    ..ExchangeDeclareOptions::default()
+                };
 
-        Ok(())
+                // Idempotent
+                channel
+                    .exchange_declare(
+                        exchange_name.as_str(),
+                        ExchangeKind::Topic,
+                        exchange_declare_options,
+                        FieldTable::default(),
+                    )
+                    .await?;
+
+                info!(
+                    "Successfully declared exchange {} with properties: {:?}",
+                    exchange_name, exchange_declare_options
+                );
+
+                Ok(Self::Ready {
+                    connection,
+                    channel,
+                    exchange_name,
+                })
+            }
+        }
     }
 
     /// Internal method to publish a message with a given routing key
@@ -98,28 +137,40 @@ impl RabbitMQMessageRepository {
     /// * `data` - Data to publish
     #[tracing::instrument(name = "Publishing message", skip(self))]
     pub async fn publish(
-        &mut self,
+        &self,
         routing_key: &str,
         data: &[u8],
     ) -> Result<(), RabbitMQMessageRepositoryError> {
-        let current_time_ms = Utc::now().timestamp_millis() as u64;
+        match self {
+            Self::Idle { .. } => {
+                return Err(RabbitMQMessageRepositoryError::NotInitialized(
+                    "Cannot publish message, repository is not initialized".to_string(),
+                ))
+            }
 
-        let channel = self.channel_container.get_channel(&self.connection).await?;
+            Self::Ready {
+                channel,
+                exchange_name,
+                ..
+            } => {
+                let current_time_ms = Utc::now().timestamp_millis() as u64;
 
-        // Not using publisher confirmation
-        channel
-            .basic_publish(
-                &self.exchange_name,
-                routing_key,
-                BasicPublishOptions::default(),
-                data,
-                BasicProperties::default()
-                    .with_timestamp(current_time_ms)
-                    .with_message_id(Uuid::new_v4().to_string().into()),
-            )
-            .await?;
+                // Not using publisher confirmation
+                channel
+                    .basic_publish(
+                        exchange_name,
+                        routing_key,
+                        BasicPublishOptions::default(),
+                        data,
+                        BasicProperties::default()
+                            .with_timestamp(current_time_ms)
+                            .with_message_id(Uuid::new_v4().to_string().into()),
+                    )
+                    .await?;
 
-        Ok(())
+                Ok(())
+            }
+        }
     }
 }
 
@@ -127,46 +178,14 @@ impl RabbitMQMessageRepository {
 pub enum RabbitMQMessageRepositoryError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
-    // #[error("Error while serializing message data: {0}")]
-    // JsonError(#[from] serde_json::Error),
     #[error("{0}")]
     ChannelInternalError(String),
+    #[error("{0}")]
+    NotInitialized(String),
 }
 
 impl std::fmt::Debug for RabbitMQMessageRepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
-    }
-}
-
-/// A kind of singleton, implementing the creation and cleaning logic of a Channel
-///
-/// The channel is factored into a separate struct so the compiler is able
-/// to see that only the `_channel` property is mutated when calling `get_channel`.
-struct ChannelContainer {
-    _channel: Option<Channel>,
-}
-
-impl ChannelContainer {
-    pub fn new() -> Self {
-        Self { _channel: None }
-    }
-
-    /// Handle the "singleton", that can be lazily initialize the channel
-    pub async fn get_channel(
-        &mut self,
-        connection: &Connection,
-    ) -> Result<&Channel, RabbitMQMessageRepositoryError> {
-        if let Some(ref channel) = self._channel {
-            Ok(channel)
-        } else {
-            let channel = connection.create_channel().await?;
-            self._channel = Some(channel);
-            return self._channel.as_ref().ok_or(
-                RabbitMQMessageRepositoryError::ChannelInternalError(
-                    "Channel reference could not be unwrapped".to_string(),
-                ),
-            );
-        }
     }
 }

@@ -18,4 +18,4 @@ impl From<ExtractedContentDto> for ContentEntity {
             content: value.content,
         }
     }
-} 
+}
