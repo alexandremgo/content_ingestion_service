@@ -7,7 +7,10 @@ services:
       - '4242:4242'
 
   content_ingestion_worker:
-    build: ./content_ingestion_worker
+    build: 
+      # With workspace dependencies, docker needs to be able to access other local crates from the workspace
+      context: .
+      dockerfile: ./content_ingestion_worker/Dockerfile
     ports:
       - '4243:4243'
 

@@ -1,23 +1,32 @@
 FROM lukemathwalker/cargo-chef:latest-rust-1.69.0 as chef
-WORKDIR /app
+WORKDIR /workspace
 # Installs the required system dependencies for our linking configuration
 RUN apt update && apt install lld clang -y
 
 ##### Dependencies planner stage #####
 FROM chef as planner
-COPY . .
+# Copies needed workspace dependencies
+COPY common .
+# Copies the app
+COPY content_ingestion_worker /workspace/app
+
+WORKDIR /workspace/app
 # Computes a lock-like file for our project
 RUN cargo chef prepare --recipe-path recipe.json
-# RUN cargo chef prepare --recipe-path recipe.json --bin content_ingestion_service
 
 ##### Dependencies builder stage #####
 FROM chef as builder
-COPY --from=planner /app/recipe.json recipe.json
+WORKDIR /workspace/app
+# Copies needed workspace dependencies
+COPY common /workspace/common
+
+COPY --from=planner /workspace/app/recipe.json recipe.json
 # Builds our project dependencies, not our application!
 RUN cargo chef cook --release --recipe-path recipe.json
+
 # Up to this point, if our dependency tree stays the same,
 # all layers should be cached. 
-COPY . .
+COPY content_ingestion_worker /workspace/app
 # Builds our project
 RUN cargo build --release --bin content_ingestion_worker
 
@@ -35,7 +44,7 @@ RUN apt-get update -y \
   && apt-get clean -y \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/content_ingestion_worker content_ingestion_worker
-COPY configuration configuration
+COPY --from=builder /workspace/app/target/release/content_ingestion_worker content_ingestion_worker
+COPY content_ingestion_worker/configuration configuration
 ENV APP_ENVIRONMENT local
 ENTRYPOINT ["./content_ingestion_worker"]
