@@ -4,8 +4,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use content_ingestion_worker::{
     domain::entities::extract_content_job::{ExtractContentJob, SourceType},
-    handlers::handler_extract_content_job::ROUTING_KEY,
-    repositories::message_rabbitmq_repository::CONTENT_EXTRACTED_MESSAGE_KEY,
+    handlers::handler_extract_content_job::{CONTENT_EXTRACTED_MESSAGE_KEY, ROUTING_KEY},
 };
 use lapin::{
     message::DeliveryResult,

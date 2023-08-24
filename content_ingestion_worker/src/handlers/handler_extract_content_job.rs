@@ -20,20 +20,25 @@ use crate::{
         readers::{epub_reader::EpubReader, xml_reader},
     },
     helper::error_chain_fmt,
-    repositories::{
-        message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
-        source_file_s3_repository::{S3Repository, S3RepositoryError},
+    repositories::source_file_s3_repository::{S3Repository, S3RepositoryError},
+};
+
+use common::{
+    core::rabbitmq_message_repository::{
+        RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
+    dtos::extracted_content::ExtractedContentDto,
 };
 
 pub const ROUTING_KEY: &str = "extract_content.text.v1";
+pub const CONTENT_EXTRACTED_MESSAGE_KEY: &str = "content_extracted.v1";
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerExtractContentJobError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
-    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
 }
 
 impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
@@ -47,7 +52,7 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
 /// It declares a queue and binds it to the given exchange.
 /// It handles messages one by one, there is no handling messages in parallel.
 ///
-/// Some repositories (MessageRabbitMQRepository) are initialized inside the handler
+/// Some repositories (RabbitMQMessageRepository) are initialized inside the handler
 /// to avoid sharing some instances (ex: RabbitMQ channel) between each thread
 #[tracing::instrument(
     name = "Register message handler",
@@ -62,7 +67,7 @@ pub async fn register_handler(
     exchange_name: String,
     s3_repository: Arc<S3Repository>,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
-    mut message_rabbitmq_repository: MessageRabbitMQRepository,
+    message_rabbitmq_repository: RabbitMQMessageRepository,
 ) -> Result<(), RegisterHandlerExtractContentJobError> {
     let channel = rabbitmq_consuming_connection.create_channel().await?;
 
@@ -115,7 +120,8 @@ pub async fn register_handler(
         .await?;
 
     // One (for publishing) channel for this collection of handlers
-    message_rabbitmq_repository.try_init().await?;
+    let message_rabbitmq_repository = message_rabbitmq_repository.try_init().await?;
+    // TODO: to remove ?
     // The fact that we need a collection-wide mutex like this is hinting that there is a problem
     // Each spawned handler will have to lock this repository to be able to publish.
     // At least this will limit the usage of the same channel in parallel.
@@ -163,7 +169,7 @@ pub async fn register_handler(
 
             match execute_handler(
                 s3_repository.clone(),
-                &mut message_rabbitmq_repository,
+                &message_rabbitmq_repository,
                 &extract_content_job,
             )
             .await
@@ -221,7 +227,9 @@ pub enum ExecuteHandlerExtractContentJobError {
     #[error(transparent)]
     S3RepositoryError(#[from] S3RepositoryError),
     #[error(transparent)]
-    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
+    #[error("Error while serializing message data: {0}")]
+    JsonError(#[from] serde_json::Error),
 }
 
 impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
@@ -236,7 +244,7 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
 )]
 pub async fn execute_handler(
     s3_repository: Arc<S3Repository>,
-    message_rabbitmq_repository: &mut MessageRabbitMQRepository,
+    message_rabbitmq_repository: &RabbitMQMessageRepository,
     job: &ExtractContentJob,
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
     let ExtractContentJob {
@@ -283,8 +291,10 @@ pub async fn execute_handler(
             extracted_content.metadata, extracted_content.content
         );
 
+        let json_dto =
+            serde_json::to_string(&Into::<ExtractedContentDto>::into(extracted_content))?;
         message_rabbitmq_repository
-            .publish_content_extracted(&extracted_content)
+            .publish(CONTENT_EXTRACTED_MESSAGE_KEY, json_dto.as_bytes())
             .await?;
 
         i += 1;

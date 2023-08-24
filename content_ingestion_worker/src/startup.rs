@@ -3,11 +3,9 @@ use std::sync::Arc;
 use crate::{
     configuration::{ObjectStorageSettings, RabbitMQSettings, Settings},
     handlers::handler_extract_content_job::{self, RegisterHandlerExtractContentJobError},
-    repositories::{
-        message_rabbitmq_repository::MessageRabbitMQRepository,
-        source_file_s3_repository::S3Repository,
-    },
+    repositories::source_file_s3_repository::S3Repository,
 };
+use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
 use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
@@ -45,7 +43,7 @@ impl Application {
             settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
         );
 
-        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+        let message_rabbitmq_repository = RabbitMQMessageRepository::new(
             rabbitmq_publishing_connection.clone(),
             &rabbitmq_content_exchange_name,
         );
@@ -86,7 +84,7 @@ impl Application {
     pub async fn prepare_message_handlers(
         &mut self,
         rabbitmq_consuming_connection: RabbitMQConnection,
-        message_rabbitmq_repository: MessageRabbitMQRepository,
+        message_rabbitmq_repository: RabbitMQMessageRepository,
         s3_repository: Arc<S3Repository>,
     ) -> Result<(), ApplicationError> {
         let s3_repository = s3_repository.clone();
@@ -113,9 +111,6 @@ impl Application {
     ///
     /// self is moved in order for the application not to drop out of scope
     /// and move into a thread for ex
-    ///
-    /// TODO: do we need a `cancel_token: CancellationToken` to force the shutdown of
-    /// the application running as an infinite loop ? Not with the join all.
     pub async fn run_until_stopped(self) -> Result<(), ApplicationError> {
         let handler_results = join_all(self.handlers).await;
 
@@ -131,67 +126,9 @@ impl Application {
     pub fn s3_bucket(&self) -> Bucket {
         self.s3_bucket.clone()
     }
-
-    // /// Runs the application until stopped
-    // ///
-    // /// This function will block the current thread
-    // ///
-    // /// self is moved in order for the application not to drop out of scope
-    // /// and move into a thread for ex
-    // ///
-    // /// # Parameters
-    // /// - `cancel_token`: to force the shutdown of the application running as an infinite loop
-    // pub async fn run_until_stopped(
-    //     self,
-    //     cancel_token: CancellationToken,
-    // ) -> Result<(), ApplicationError> {
-    //     info!("📡 running until stopped");
-
-    //     loop {
-    //         if cancel_token.is_cancelled() {
-    //             break;
-    //         }
-
-    //         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    //     }
-
-    //     // Not making it gracefully shutdown
-    //     // self.rabbitmq_connection.close(200, "").await;
-
-    //     info!("👋 Bye!");
-    //     Ok(())
-    // }
-
-    // /// Registers queue message handlers with delegate to start the worker
-    // #[tracing::instrument(
-    //     name = "Preparing to run the worker application with delegate",
-    //     skip(
-    //         self,
-    //         rabbitmq_consuming_connection,
-    //         message_rabbitmq_repository,
-    //         extracted_content_meilisearch_repository
-    //     )
-    // )]
-    // pub async fn registers_message_handlers(
-    //     &self,
-    //     rabbitmq_consuming_connection: RabbitMQConnection,
-    //     message_rabbitmq_repository: MessageRabbitMQRepository,
-    //     extracted_content_meilisearch_repository: Arc<ExtractedContentMeilisearchRepository>,
-    // ) -> Result<(), ApplicationError> {
-    //     handler_extract_content_job::register_handler(
-    //         rabbitmq_consuming_connection,
-    //         &self.rabbitmq_content_exchange_name,
-    //         self.s3_repository.clone(),
-    //         extracted_content_meilisearch_repository.clone(),
-    //         message_rabbitmq_repository.clone(),
-    //     )
-    //     .await?;
-
-    //     Ok(())
-    // }
 }
 
-/// Create a connection to RabbitMQ
+/// Creates a connection to RabbitMQ
 pub async fn get_rabbitmq_connection(
     config: &RabbitMQSettings,
 ) -> Result<RabbitMQConnection, lapin::Error> {
