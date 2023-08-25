@@ -10,45 +10,43 @@ use lapin::{
 use std::sync::Arc;
 use tracing::{error, info, info_span, Instrument};
 
-use crate::{
-    domain::entities::content::ContentEntity,
-    repositories::meilisearch_content_repository::{
-        MeilisearchContentRepository, MeilisearchContentRepositoryError,
-    },
+use crate::repositories::meilisearch_content_repository::{
+    MeilisearchContentRepository, MeilisearchContentRepositoryError,
 };
 use common::{
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
-    dtos::extracted_content::ExtractedContentDto,
+    dtos::fulltext_search_request::FulltextSearchRequestDto,
     helper::error_chain_fmt,
 };
 
-pub const ROUTING_KEY: &str = "content_extracted.v1";
+pub const ROUTING_KEY: &str = "search_fulltext.v1";
 
 #[derive(thiserror::Error)]
-pub enum RegisterHandlerContentExtractedError {
+pub enum RegisterHandlerSearchFulltextError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
     RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
 }
 
-impl std::fmt::Debug for RegisterHandlerContentExtractedError {
+impl std::fmt::Debug for RegisterHandlerSearchFulltextError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
     }
 }
 
-/// Registers the message handler to a given exchange with a specific binding key
+/// Registers the RPC message handler to a given exchange with a specific binding key
 ///
-/// It declares a queue and binds it to the given exchange.
+/// The handler will respond to the message on the given `reply-to`.
+///
 /// It handles messages one by one, there is no handling messages in parallel.
 ///
 /// Some repositories (MessageRabbitMQRepository) are initialized inside the handler
 /// to avoid sharing some instances (ex: RabbitMQ channel) between each thread
 #[tracing::instrument(
-    name = "Register message handler",
+    name = "Register search fulltext RPC handler",
     skip(rabbitmq_consuming_connection, message_repository, content_repository)
 )]
 pub async fn register_handler(
@@ -58,7 +56,7 @@ pub async fn register_handler(
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
     message_repository: RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
-) -> Result<(), RegisterHandlerContentExtractedError> {
+) -> Result<(), RegisterHandlerSearchFulltextError> {
     let channel = rabbitmq_consuming_connection.create_channel().await?;
 
     channel
@@ -131,7 +129,7 @@ pub async fn register_handler(
                 }
             };
 
-            let extracted_content = match ExtractedContentDto::try_parsing(&delivery.data) {
+            let search_request = match FulltextSearchRequestDto::try_parsing(&delivery.data) {
                 Ok(job) => job,
                 Err(error) => {
                     error!(
@@ -142,12 +140,28 @@ pub async fn register_handler(
                 }
             };
 
-            info!(?extracted_content, "Received extracted content");
+            let reply_to = match delivery.properties.reply_to() {
+                Some(reply_to) => reply_to.to_string(),
+                None => {
+                    error!(
+                        ?search_request,
+                        "No reply-to property from RPC call message"
+                    );
+                    return;
+                }
+            };
+
+            info!(
+                ?search_request,
+                ?reply_to,
+                "Received fulltext search request, executing..."
+            );
 
             match execute_handler(
                 &message_repository,
                 content_repository.clone(),
-                extracted_content,
+                &reply_to,
+                search_request,
             )
             .await
             {
@@ -204,25 +218,24 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 }
 
 #[tracing::instrument(
-    name = "Executing handler on extracted content",
+    name = "Executing handler on fulltext search request",
     skip(message_repository, content_repository,)
 )]
 pub async fn execute_handler(
     message_repository: &RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
-    extracted_content: ExtractedContentDto,
+    reply_to: &str,
+    fulltext_search_request: FulltextSearchRequestDto,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
-    let content: ContentEntity = extracted_content.into();
-    content_repository.save(&content).await?;
+    let FulltextSearchRequestDto { content, .. } = fulltext_search_request;
 
-    // To inform on progress. Not used currently.
+    let content = format!("🦄 Response for {content}");
+
+    // Sends response to the given `reply_to` to mimic a RPC call
     message_repository
-        .publish(
-            "content_fulltext_saved.v1",
-            serde_json::to_string(&content)?.as_bytes(),
-        )
+        .publish(reply_to, serde_json::to_string(&content)?.as_bytes())
         .await?;
 
-    info!("Successfully handled extract_content_job message");
+    info!("Successfully handled {} message", ROUTING_KEY);
     Ok(())
 }

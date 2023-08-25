@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use crate::{
     configuration::{MeilisearchSettings, RabbitMQSettings, Settings},
-    handlers::handler_content_extracted::{self, RegisterHandlerContentExtractedError},
+    handlers::{
+        handler_content_extracted::{self, RegisterHandlerContentExtractedError},
+        handler_search_fulltext::{self, RegisterHandlerSearchFulltextError},
+    },
     repositories::meilisearch_content_repository::MeilisearchContentRepository,
 };
 use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
@@ -32,7 +35,8 @@ impl Application {
     pub async fn build(settings: Settings) -> Result<Self, ApplicationError> {
         // TODO: handle connections with a re-connection strategy
         // One connection for consuming messages, one for publishing messages
-        let rabbitmq_consuming_connection = get_rabbitmq_connection(&settings.rabbitmq).await?;
+        let rabbitmq_consuming_connection =
+            Arc::new(get_rabbitmq_connection(&settings.rabbitmq).await?);
         let rabbitmq_publishing_connection =
             Arc::new(get_rabbitmq_connection(&settings.rabbitmq).await?);
 
@@ -75,6 +79,9 @@ impl Application {
     /// Prepares the asynchronous tasks on which our message handlers will run.
     ///
     /// A "message handler" consumes messages from a (generated) queue bound to with a specific binding key to the given exchange
+    ///
+    /// The RabbitMQ connection used to consume messages is shared between threads.
+    /// But each thread will create their own channel to start consuming.
     #[tracing::instrument(
         name = "Preparing the messages handlers",
         skip(
@@ -86,7 +93,7 @@ impl Application {
     )]
     pub async fn prepare_message_handlers(
         &mut self,
-        rabbitmq_consuming_connection: RabbitMQConnection,
+        rabbitmq_consuming_connection: Arc<RabbitMQConnection>,
         // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
         message_repository: RabbitMQMessageRepository,
         content_repository: Arc<MeilisearchContentRepository>,
@@ -96,9 +103,22 @@ impl Application {
 
         // We could have several message handlers running in parallel bound with the same binding key to the same exchange.
         // Or other message handlers bound with a different binding key to the same or another exchange.
-        let handler = tokio::spawn(
+        let spawn_handler = tokio::spawn(
             handler_content_extracted::register_handler(
-                rabbitmq_consuming_connection,
+                rabbitmq_consuming_connection.clone(),
+                exchange_name.clone(),
+                queue_name_prefix.clone(),
+                message_repository.clone(),
+                content_repository.clone(),
+            )
+            .map_err(|e| e.into()),
+        );
+
+        self.handlers.push(spawn_handler);
+
+        let spawn_handler = tokio::spawn(
+            handler_search_fulltext::register_handler(
+                rabbitmq_consuming_connection.clone(),
                 exchange_name,
                 queue_name_prefix,
                 message_repository.clone(),
@@ -107,7 +127,7 @@ impl Application {
             .map_err(|e| e.into()),
         );
 
-        self.handlers.push(handler);
+        self.handlers.push(spawn_handler);
 
         Ok(())
     }
@@ -149,4 +169,6 @@ pub enum ApplicationError {
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
     ContentExtractedHandlerError(#[from] RegisterHandlerContentExtractedError),
+    #[error(transparent)]
+    SearchFulltextHandlerError(#[from] RegisterHandlerSearchFulltextError),
 }

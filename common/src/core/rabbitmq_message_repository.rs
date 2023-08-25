@@ -1,12 +1,12 @@
-use std::sync::Arc;
-
 use chrono::Utc;
+use futures::StreamExt;
 use lapin::{
-    options::{BasicPublishOptions, ExchangeDeclareOptions},
+    options::{BasicConsumeOptions, BasicPublishOptions, ExchangeDeclareOptions},
     types::FieldTable,
     BasicProperties, Channel, Connection, ExchangeKind,
 };
-use tracing::info;
+use std::sync::Arc;
+use tracing::{error, info, info_span, Instrument};
 use uuid::Uuid;
 
 use crate::helper::error_chain_fmt;
@@ -14,7 +14,7 @@ use crate::helper::error_chain_fmt;
 /// Message repository implemented with RabbitMQ
 ///
 /// To publish messages from a service to a given exchange
-/// 
+///
 /// The enum definition gatekeeps functionalities if the repository is not ready (not initialized).
 pub enum RabbitMQMessageRepository {
     Ready {
@@ -130,7 +130,7 @@ impl RabbitMQMessageRepository {
         }
     }
 
-    /// Internal method to publish a message with a given routing key
+    /// Publishes a message with a given routing key
     ///
     /// # Arguments
     /// * `routing_key` - routing key to publish the message to
@@ -167,6 +167,90 @@ impl RabbitMQMessageRepository {
                             .with_message_id(Uuid::new_v4().to_string().into()),
                     )
                     .await?;
+
+                Ok(())
+            }
+        }
+    }
+
+    /// RPC call: publishes a message with a given routing key and waits for a response
+    ///
+    /// Note: Reply messages sent using this RPC mechanism are in general not fault-tolerant:
+    /// they will be discarded if the client that published the original request subsequently disconnects.
+    /// The assumption is that an RPC client will reconnect and submit another request in this case.
+    ///
+    /// # Arguments
+    /// * `routing_key` - routing key to publish the message to
+    /// * `data` - Data to publish
+    #[tracing::instrument(name = "Publishing message", skip(self))]
+    pub async fn rpc_call(
+        &self,
+        routing_key: &str,
+        data: &[u8],
+    ) -> Result<(), RabbitMQMessageRepositoryError> {
+        match self {
+            Self::Idle { .. } => {
+                return Err(RabbitMQMessageRepositoryError::NotInitialized(
+                    "Cannot RPC call, repository is not initialized".to_string(),
+                ))
+            }
+
+            Self::Ready {
+                channel,
+                exchange_name,
+                ..
+            } => {
+                let current_time_ms = Utc::now().timestamp_millis() as u64;
+
+                channel
+                    .basic_publish(
+                        exchange_name,
+                        routing_key,
+                        BasicPublishOptions::default(),
+                        data,
+                        BasicProperties::default()
+                            .with_reply_to("amq.rabbitmq.reply-to".into())
+                            .with_timestamp(current_time_ms)
+                            .with_message_id(Uuid::new_v4().to_string().into()),
+                    )
+                    .await?;
+
+                // Waits for an answer on the pseudo-queue `amq.rabbitmq.reply-to` and the default RabbitMQ exchange
+                let mut consumer = channel
+                    .basic_consume(
+                        "amq.rabbitmq.reply-to",
+                        "",
+                        BasicConsumeOptions {
+                            no_ack: true,
+                            ..BasicConsumeOptions::default()
+                        },
+                        FieldTable::default(),
+                    )
+                    .await?;
+
+                while let Some(delivery) = consumer.next().await {
+                    async {
+                        let delivery = match delivery {
+                            // Carries the delivery alongside its channel
+                            Ok(delivery) => delivery,
+                            // Carries the error and is always followed by Ok(None)
+                            Err(error) => {
+                                error!(
+                                    ?error,
+                                    "Failed to consume response message on queue amq.rabbitmq.reply-to",
+                                );
+                                return;
+                            }
+                        };
+
+                        info!("🦄 Received response: {:?}\n", delivery);
+                    }
+                    .instrument(info_span!(
+                        "Handling RPC response",
+                        message_id = %uuid::Uuid::new_v4(),
+                    ))
+                    .await
+                }
 
                 Ok(())
             }
