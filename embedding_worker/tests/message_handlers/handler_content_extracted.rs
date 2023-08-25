@@ -49,7 +49,7 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_content_extracted_mess
     };
 
     let message = serde_json::to_string(&extracted_content).unwrap();
-    info!("🦄 extracted content message: {}", message);
+    info!("Extracted content message: {}", message);
 
     // Sends the job message to the worker binding key
     let routing_key = ROUTING_KEY;
@@ -116,7 +116,7 @@ async fn handler_negative_acknowledges_content_extracted_message_when_incorrect(
     });
 
     let message = a_message_missing_metadata.to_string();
-    info!("🦄 a message missing metadata: {}", message);
+    info!("A message missing metadata: {}", message);
 
     let routing_key = ROUTING_KEY;
 

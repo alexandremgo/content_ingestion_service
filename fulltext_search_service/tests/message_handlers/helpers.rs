@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use chrono::Utc;
 use fulltext_search_service::{
     configuration::get_configuration,
@@ -48,8 +46,10 @@ pub struct RabbitMQManagementAPIConfig {
 pub struct TestApp {
     pub rabbitmq_connection: RabbitMQConnection,
     pub rabbitmq_content_exchange_name: String,
+    pub rabbitmq_queue_name_prefix: String,
     pub rabbitmq_management_api_config: RabbitMQManagementAPIConfig,
     pub rabbitmq_channel: Channel,
+    // TODO: connection to Meilisearch
 }
 
 #[derive(Debug)]
@@ -59,19 +59,22 @@ pub struct QueueBindingInfo {
 }
 
 impl TestApp {
-    /// Helper function to wait until some queues are declared and bound to the given exchange
+    /// Helper function to wait until a queue is declared and bound to an exchange with a given routing key
     ///
+    /// TODO:
     /// # Returns
     /// A Result containing a list of `QueueBindingInfo` if no issue occurred, or an error string message
     #[tracing::instrument(
         name = "Helper waiting until queue is declared and consumer is bound",
         skip(self)
     )]
-    pub async fn wait_until_queues_declared_and_bound_to_exchange(
+    pub async fn wait_until_queue_declared_and_bound_to_exchange(
         &self,
         exchange_name: &str,
+        queue_name: &str,
+        routing_key: &str,
         max_retry: usize,
-    ) -> Result<Vec<QueueBindingInfo>, String> {
+    ) -> Result<(), String> {
         let client = reqwest::Client::new();
 
         let retry_step_time_ms = 1000;
@@ -88,8 +91,8 @@ impl TestApp {
 
             let response = client
                 .get(&format!(
-                    "{}/exchanges/{}/{}/bindings/source",
-                    base_url, vhost, exchange_name
+                    "{}/bindings/{}/e/{}/q/{}",
+                    base_url, vhost, exchange_name, queue_name
                 ))
                 .basic_auth(username, Some(password))
                 .send()
@@ -115,27 +118,26 @@ impl TestApp {
 
             info!("📡 From management API: response {:?}", response_json);
 
-            // The API returns an empty array if there are no bindings on the given exchange
-            let bound_queues = response_json.as_array().unwrap();
+            // The API returns an empty array if there are no bindings between the given exchange and queue
+            // There could be several bindings between the queue and the exchange
+            let bindings = response_json.as_array().unwrap();
 
-            if bound_queues.is_empty() {
+            if bindings.is_empty() {
                 continue;
             }
 
-            let queue_binding_infos = bound_queues
-                .iter()
-                .map(|queue_json| {
-                    let queue_name = queue_json["destination"].as_str().unwrap().to_string();
-                    let routing_key = queue_json["routing_key"].as_str().unwrap().to_string();
+            let bound_with_routing_key = bindings.iter().find(|queue_json| {
+                let binding_routing_key = queue_json["routing_key"].as_str().unwrap();
 
-                    QueueBindingInfo {
-                        queue_name,
-                        routing_key,
-                    }
-                })
-                .collect();
+                binding_routing_key == routing_key
+            });
 
-            return Ok(queue_binding_infos);
+            // The queue has not been bound with the wanted routing key to the exchange yet
+            if bound_with_routing_key.is_none() {
+                continue;
+            }
+
+            return Ok(());
         }
 
         Err(format!(
@@ -195,9 +197,14 @@ pub async fn spawn_app() -> TestApp {
     let configuration = {
         let mut c = get_configuration().expect("Failed to read configuration.");
 
-        // Uses a different exchange for each test case
+        // Uses a different exchange and queue names for each test case
         c.rabbitmq.exchange_name_prefix = format!(
-            "test_message_handlers_{}_{}",
+            "test_{}_{}",
+            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
+            Uuid::new_v4()
+        );
+        c.rabbitmq.queue_name_prefix = format!(
+            "test_{}_{}",
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
             Uuid::new_v4()
         );
@@ -239,6 +246,7 @@ pub async fn spawn_app() -> TestApp {
             "{}_{}",
             configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
         ),
+        rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix,
         rabbitmq_connection,
         rabbitmq_channel,
         rabbitmq_management_api_config,

@@ -71,8 +71,8 @@ pub async fn register_handler(
         )
         .await?;
 
-    // In order to have several nodes of this service as consumers of the same queues
-    let queue_name = format!("{}_{}", queue_name_prefix, ROUTING_KEY);
+    // In order to have several nodes of this service as consumers of the same queue: use a specific queue name
+    let queue_name = queue_name(&queue_name_prefix);
 
     let _ = channel
         .queue_declare(
@@ -199,6 +199,10 @@ pub async fn register_handler(
     }
 
     Ok(())
+}
+
+pub fn queue_name(queue_name_prefix: &str) -> String {
+    format!("{}_{}", queue_name_prefix, ROUTING_KEY)
 }
 
 #[derive(thiserror::Error)]
