@@ -1,5 +1,6 @@
 use futures::StreamExt;
 use lapin::{
+    message::Delivery,
     options::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
         QueueBindOptions, QueueDeclareOptions,
@@ -131,25 +132,7 @@ pub async fn register_handler(
                 }
             };
 
-            let extracted_content = match ExtractedContentDto::try_parsing(&delivery.data) {
-                Ok(job) => job,
-                Err(error) => {
-                    error!(
-                        ?error,
-                        "Failed to parse extracted content message data: {}", error
-                    );
-                    return;
-                }
-            };
-
-            info!(?extracted_content, "Received extracted content");
-
-            match execute_handler(
-                &message_repository,
-                content_repository.clone(),
-                extracted_content,
-            )
-            .await
+            match execute_handler(&message_repository, content_repository.clone(), &delivery).await
             {
                 Ok(()) => {
                     info!(
@@ -199,6 +182,8 @@ pub enum ExecuteHandlerContentExtractedError {
     MeilisearchContentRepositoryError(#[from] MeilisearchContentRepositoryError),
     #[error("Error while serializing message data: {0}")]
     JsonError(#[from] serde_json::Error),
+    #[error("{0}")]
+    MessageParsingError(String),
 }
 
 impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
@@ -209,14 +194,23 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 
 #[tracing::instrument(
     name = "Executing handler on extracted content",
-    skip(message_repository, content_repository,)
+    skip(message_repository, content_repository, message)
 )]
 pub async fn execute_handler(
     message_repository: &RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
-    extracted_content: ExtractedContentDto,
+    message: &Delivery,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
+    let extracted_content = ExtractedContentDto::try_parsing(&message.data).map_err(|error| {
+        ExecuteHandlerContentExtractedError::MessageParsingError(format!(
+            "Failed to parse extracted content message data: {}",
+            error
+        ))
+    })?;
+
+    info!(?extracted_content, "Received extracted content");
     let content: ContentEntity = extracted_content.into();
+
     content_repository.save(&content).await?;
 
     // To inform on progress. Not used currently.
