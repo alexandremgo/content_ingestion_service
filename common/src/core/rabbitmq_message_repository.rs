@@ -6,7 +6,7 @@ use lapin::{
     BasicProperties, Channel, Connection, ExchangeKind,
 };
 use std::sync::Arc;
-use tracing::{error, info, info_span, Instrument};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::helper::error_chain_fmt;
@@ -31,8 +31,6 @@ pub enum RabbitMQMessageRepository {
         exchange_name: String,
     },
 }
-
-pub const CONTENT_EXTRACTED_MESSAGE_KEY: &str = "content_extracted.v1";
 
 /// Clones only the thread safe part of the repository
 ///
@@ -135,7 +133,7 @@ impl RabbitMQMessageRepository {
     /// # Arguments
     /// * `routing_key` - routing key to publish the message to
     /// * `data` - Data to publish
-    #[tracing::instrument(name = "Publishing message", skip(self))]
+    #[tracing::instrument(name = "Publishing message", skip(self, data))]
     pub async fn publish(
         &self,
         routing_key: &str,
@@ -175,19 +173,27 @@ impl RabbitMQMessageRepository {
 
     /// RPC call: publishes a message with a given routing key and waits for a response
     ///
-    /// Note: Reply messages sent using this RPC mechanism are in general not fault-tolerant:
+    /// ## Notes on usage
+    /// Reply messages sent using this RPC mechanism are in general not fault-tolerant:
     /// they will be discarded if the client that published the original request subsequently disconnects.
     /// The assumption is that an RPC client will reconnect and submit another request in this case.
+    ///
+    /// ## Implementation details
+    /// The consumer and the RPC call should be on the same channel to enable the RabbitMQ broker to make the necessary
+    /// associations.
+    /// Also, the consumer must be started *before* publishing the RPC requests.
+    /// The client must create its consumer with `auto_ack/no_ack:true` because the `reply-to`
+    /// queue isn't real.
     ///
     /// # Arguments
     /// * `routing_key` - routing key to publish the message to
     /// * `data` - Data to publish
-    #[tracing::instrument(name = "Publishing message", skip(self))]
+    #[tracing::instrument(name = "RPC call", skip(self, data))]
     pub async fn rpc_call(
         &self,
         routing_key: &str,
         data: &[u8],
-    ) -> Result<(), RabbitMQMessageRepositoryError> {
+    ) -> Result<Vec<u8>, RabbitMQMessageRepositoryError> {
         match self {
             Self::Idle { .. } => {
                 return Err(RabbitMQMessageRepositoryError::NotInitialized(
@@ -202,6 +208,19 @@ impl RabbitMQMessageRepository {
             } => {
                 let current_time_ms = Utc::now().timestamp_millis() as u64;
 
+                // Defines a consumer on the pseudo-queue `amq.rabbitmq.reply-to` and the default RabbitMQ exchange
+                let mut consumer = channel
+                    .basic_consume(
+                        "amq.rabbitmq.reply-to",
+                        "",
+                        BasicConsumeOptions {
+                            no_ack: true,
+                            ..BasicConsumeOptions::default()
+                        },
+                        FieldTable::default(),
+                    )
+                    .await?;
+
                 channel
                     .basic_publish(
                         exchange_name,
@@ -215,42 +234,60 @@ impl RabbitMQMessageRepository {
                     )
                     .await?;
 
-                // Waits for an answer on the pseudo-queue `amq.rabbitmq.reply-to` and the default RabbitMQ exchange
-                let mut consumer = channel
-                    .basic_consume(
-                        "amq.rabbitmq.reply-to",
+                debug!("Waiting for a response...");
+
+                // Waits for an answer
+                let delivery = consumer.next().await.ok_or(
+                    RabbitMQMessageRepositoryError::RpcCallIncorrectResponse(
+                        "Empty response".to_string(),
+                    ),
+                )?;
+
+                let delivery = delivery.map_err(|error| {
+                    RabbitMQMessageRepositoryError::RpcCallIncorrectResponse(format!(
+                        "Failed to consume response message on queue amq.rabbitmq.reply-to: {}",
+                        error
+                    ))
+                })?;
+
+                debug!("Received response: {:?}\n", delivery);
+                Ok(delivery.data)
+            }
+        }
+    }
+
+    /// Responds to RPC call by publishing a message to the given reply-to on the default RabbitMQ exchange
+    ///
+    /// # Arguments
+    /// * `reply_to` - routing key to publish the message to
+    /// * `data` - Data to publish
+    #[tracing::instrument(name = "Publishing message", skip(self, data))]
+    pub async fn rpc_respond(
+        &self,
+        reply_to: &str,
+        data: &[u8],
+    ) -> Result<(), RabbitMQMessageRepositoryError> {
+        match self {
+            Self::Idle { .. } => {
+                return Err(RabbitMQMessageRepositoryError::NotInitialized(
+                    "Cannot publish message, repository is not initialized".to_string(),
+                ))
+            }
+
+            Self::Ready { channel, .. } => {
+                let current_time_ms = Utc::now().timestamp_millis() as u64;
+
+                channel
+                    .basic_publish(
                         "",
-                        BasicConsumeOptions {
-                            no_ack: true,
-                            ..BasicConsumeOptions::default()
-                        },
-                        FieldTable::default(),
+                        reply_to,
+                        BasicPublishOptions::default(),
+                        data,
+                        BasicProperties::default()
+                            .with_timestamp(current_time_ms)
+                            .with_message_id(Uuid::new_v4().to_string().into()),
                     )
                     .await?;
-
-                while let Some(delivery) = consumer.next().await {
-                    async {
-                        let delivery = match delivery {
-                            // Carries the delivery alongside its channel
-                            Ok(delivery) => delivery,
-                            // Carries the error and is always followed by Ok(None)
-                            Err(error) => {
-                                error!(
-                                    ?error,
-                                    "Failed to consume response message on queue amq.rabbitmq.reply-to",
-                                );
-                                return;
-                            }
-                        };
-
-                        info!("🦄 Received response: {:?}\n", delivery);
-                    }
-                    .instrument(info_span!(
-                        "Handling RPC response",
-                        message_id = %uuid::Uuid::new_v4(),
-                    ))
-                    .await
-                }
 
                 Ok(())
             }
@@ -266,6 +303,8 @@ pub enum RabbitMQMessageRepositoryError {
     ChannelInternalError(String),
     #[error("{0}")]
     NotInitialized(String),
+    #[error("{0}")]
+    RpcCallIncorrectResponse(String),
 }
 
 impl std::fmt::Debug for RabbitMQMessageRepositoryError {
