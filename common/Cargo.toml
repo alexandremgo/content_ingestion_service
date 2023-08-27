@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tokio = { version = "1.28.2", features = ["macros"] }
 chrono = "0.4.26"
 futures = "0.3.28"
 once_cell = "1.18.0"
@@ -19,6 +20,5 @@ serde = { version = "1.0.163", features = ["derive"] }
 uuid = { version = "1.3.3", features = ["v4", "serde"] }
 
 [dev-dependencies]
-tokio = { version = "1.28.2", features = ["macros"] }
 tokio-executor-trait = "2.0.1"
 tokio-reactor-trait = "1.1.0"

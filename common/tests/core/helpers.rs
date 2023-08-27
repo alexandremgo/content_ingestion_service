@@ -1,5 +1,6 @@
 use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
 use once_cell::sync::Lazy;
+use tracing::error;
 
 // Ensures that the `tracing` stack is only initialized once using `once_cell`
 static TRACING: Lazy<()> = Lazy::new(|| {
@@ -25,4 +26,12 @@ pub fn init_test() {
     // The first time `initialize` is invoked the code in `TRACING` is executed.
     // All other invocations will instead skip execution.
     Lazy::force(&TRACING);
+
+    // Custom panic to catch, display and exit on panics from a different thread
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        error!("panic: {}", info);
+        default_panic(info);
+        std::process::exit(1);
+    }));
 }

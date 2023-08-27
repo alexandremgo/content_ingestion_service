@@ -5,7 +5,8 @@ use lapin::{
     types::FieldTable,
     BasicProperties, Channel, Connection, ExchangeKind,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+use tokio::time::{error::Elapsed, timeout};
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
@@ -188,12 +189,16 @@ impl RabbitMQMessageRepository {
     /// # Arguments
     /// * `routing_key` - routing key to publish the message to
     /// * `data` - Data to publish
+    /// * `timout_ms` - Timeout in ms triggered if no response was received. Default to 60000ms.
     #[tracing::instrument(name = "RPC call", skip(self, data))]
     pub async fn rpc_call(
         &self,
         routing_key: &str,
         data: &[u8],
+        timeout_ms: Option<usize>,
     ) -> Result<Vec<u8>, RabbitMQMessageRepositoryError> {
+        let timeout_ms = timeout_ms.unwrap_or(60000);
+
         match self {
             Self::Idle { .. } => {
                 return Err(RabbitMQMessageRepositoryError::NotInitialized(
@@ -236,12 +241,12 @@ impl RabbitMQMessageRepository {
 
                 debug!("Waiting for a response...");
 
-                // Waits for an answer
-                let delivery = consumer.next().await.ok_or(
-                    RabbitMQMessageRepositoryError::RpcCallIncorrectResponse(
+                // Waits for an answer, or timeout
+                let delivery = timeout(Duration::from_millis(timeout_ms as u64), consumer.next())
+                    .await?
+                    .ok_or(RabbitMQMessageRepositoryError::RpcCallIncorrectResponse(
                         "Empty response".to_string(),
-                    ),
-                )?;
+                    ))?;
 
                 let delivery = delivery.map_err(|error| {
                     RabbitMQMessageRepositoryError::RpcCallIncorrectResponse(format!(
@@ -305,6 +310,8 @@ pub enum RabbitMQMessageRepositoryError {
     NotInitialized(String),
     #[error("{0}")]
     RpcCallIncorrectResponse(String),
+    #[error("Timeout occurred: {0}")]
+    Timeout(#[from] Elapsed),
 }
 
 impl std::fmt::Debug for RabbitMQMessageRepositoryError {
