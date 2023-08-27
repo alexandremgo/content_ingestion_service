@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
+use common::{core::rabbitmq_message_repository::RabbitMQMessageRepository, telemetry::{get_tracing_subscriber, init_tracing_subscriber}};
 use fulltext_search_service::{
     configuration::get_configuration,
     startup::{get_rabbitmq_connection, Application},
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use lapin::{Channel, Connection as RabbitMQConnection};
 use tokio::time::{sleep, Duration};

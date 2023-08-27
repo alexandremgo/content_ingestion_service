@@ -1,7 +1,7 @@
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
 use fulltext_search_service::{
     configuration::get_configuration,
     startup::Application,
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 
 #[tokio::main]
