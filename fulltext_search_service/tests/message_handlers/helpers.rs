@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use chrono::Utc;
+use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
 use fulltext_search_service::{
     configuration::get_configuration,
     startup::{get_rabbitmq_connection, Application},
@@ -44,11 +47,14 @@ pub struct RabbitMQManagementAPIConfig {
 ///
 /// A test suite to easily create integration tests
 pub struct TestApp {
-    pub rabbitmq_connection: RabbitMQConnection,
+    pub rabbitmq_connection: Arc<RabbitMQConnection>,
     pub rabbitmq_content_exchange_name: String,
     pub rabbitmq_queue_name_prefix: String,
     pub rabbitmq_management_api_config: RabbitMQManagementAPIConfig,
+    // To consume messages during tests
     pub rabbitmq_channel: Channel,
+    // To publish and rpc_call messages for tests
+    pub rabbitmq_message_repository: RabbitMQMessageRepository,
     // TODO: connection to Meilisearch
 }
 
@@ -231,24 +237,34 @@ pub async fn spawn_app() -> TestApp {
         .await
         .expect("Failed to build application.");
 
-    // RabbitMQ connection used by the test suite
+    // RabbitMQ connection, channel, and message repository used by the test suite
     let rabbitmq_connection = get_rabbitmq_connection(&configuration.rabbitmq)
         .await
         .unwrap();
+    let rabbitmq_connection = Arc::new(rabbitmq_connection);
     let rabbitmq_channel = rabbitmq_connection.create_channel().await.unwrap();
+
+    let rabbitmq_content_exchange_name = format!(
+        "{}_{}",
+        configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
+    );
+
+    let rabbitmq_message_repository = RabbitMQMessageRepository::new(
+        rabbitmq_connection.clone(),
+        &rabbitmq_content_exchange_name,
+    );
+    let rabbitmq_message_repository = rabbitmq_message_repository.try_init().await.unwrap();
 
     tokio::spawn(application.run_until_stopped());
 
     info!("The application worker has been spawned into a new thread");
 
     TestApp {
-        rabbitmq_content_exchange_name: format!(
-            "{}_{}",
-            configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
-        ),
+        rabbitmq_content_exchange_name,
         rabbitmq_queue_name_prefix: configuration.rabbitmq.queue_name_prefix,
         rabbitmq_connection,
         rabbitmq_channel,
         rabbitmq_management_api_config,
+        rabbitmq_message_repository,
     }
 }

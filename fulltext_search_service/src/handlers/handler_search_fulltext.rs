@@ -17,7 +17,11 @@ use common::{
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
-    dtos::fulltext_search_request::FulltextSearchRequestDto,
+    dtos::{
+        fulltext_search_request::FulltextSearchRequestDto,
+        fulltext_search_response::{FulltextSearchResponseData, FulltextSearchResponseDto},
+        templates::rpc_response::RpcErrorStatus,
+    },
     helper::error_chain_fmt,
 };
 
@@ -82,11 +86,6 @@ pub async fn register_handler(
         )
         .await?;
 
-    info!(
-        "Declared queue {} on exchange {}, binding on {}",
-        queue_name, exchange_name, ROUTING_KEY
-    );
-
     channel
         .queue_bind(
             &queue_name,
@@ -96,6 +95,11 @@ pub async fn register_handler(
             FieldTable::default(),
         )
         .await?;
+
+    info!(
+        "Declared queue {} on exchange {}, binding on {}",
+        queue_name, exchange_name, ROUTING_KEY
+    );
 
     let consumer_options = BasicConsumeOptions {
         no_ack: false,
@@ -129,39 +133,34 @@ pub async fn register_handler(
                 }
             };
 
-            let search_request = match FulltextSearchRequestDto::try_parsing(&delivery.data) {
-                Ok(job) => job,
-                Err(error) => {
-                    error!(
-                        ?error,
-                        "Failed to parse extracted content message data: {}", error
-                    );
-                    return;
-                }
-            };
-
-            let reply_to = match delivery.properties.reply_to() {
-                Some(reply_to) => reply_to.to_string(),
+            let reply_to = match delivery.properties.reply_to().as_ref() {
+                Some(reply_to) => reply_to,
                 None => {
                     error!(
-                        ?search_request,
-                        "No reply-to property from RPC call message"
+                        "No `reply-to` attribute necessary for RPC call on queue: {}",
+                        queue_name
                     );
+
+                    // Disables requeue if there is no way to reply to the RPC call
+                    if let Err(error) = delivery
+                        .nack(BasicNackOptions {
+                            requeue: false,
+                            ..BasicNackOptions::default()
+                        })
+                        .await
+                    {
+                        error!(?error, "Failed to nack message");
+                    }
+
                     return;
                 }
             };
-
-            info!(
-                ?search_request,
-                ?reply_to,
-                "Received fulltext search request, executing..."
-            );
 
             match execute_handler(
                 &message_repository,
                 content_repository.clone(),
-                &reply_to,
-                search_request,
+                &delivery.data,
+                reply_to.as_str(),
             )
             .await
             {
@@ -171,19 +170,31 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
-                        error!(?error, "Failed to ack extract_content_job message");
+                        error!(?error, "Failed to ack message");
                     }
                 }
                 Err(error) => {
-                    error!(?error, "Failed to handle extract_content_job message");
+                    error!(?error, "Failed to handle fulltext search request");
 
-                    // TODO: maybe depending on the error we could reject the message and not just nack
+                    // TODO: maps `error` to specific RpcErrorStatus
+                    let response = FulltextSearchResponseDto::Error {
+                        status: RpcErrorStatus::BadRequest,
+                        message: error.to_string(),
+                    };
+
+                    if let Ok(response) = FulltextSearchResponseDto::try_serializing(&response) {
+                        // Sends response to the given `reply_to` to mimic a RPC call
+                        let _ = message_repository
+                            .rpc_respond(reply_to.as_str(), response.as_bytes())
+                            .await;
+                    }
+
                     info!(
                         "Not acknowledging message with delivery tag {}",
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
-                        error!(?error, "Failed to nack extracted content message");
+                        error!(?error, "Failed to nack message");
                     }
                 }
             }
@@ -213,6 +224,8 @@ pub enum ExecuteHandlerContentExtractedError {
     MeilisearchContentRepositoryError(#[from] MeilisearchContentRepositoryError),
     #[error("Error while serializing message data: {0}")]
     JsonError(#[from] serde_json::Error),
+    #[error("Error while deserializing input message: {0}")]
+    MessageParsingError(String),
 }
 
 impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
@@ -228,16 +241,32 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 pub async fn execute_handler(
     message_repository: &RabbitMQMessageRepository,
     content_repository: Arc<MeilisearchContentRepository>,
+    data: &[u8],
     reply_to: &str,
-    fulltext_search_request: FulltextSearchRequestDto,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
-    let FulltextSearchRequestDto { content, .. } = fulltext_search_request;
+    let search_request = FulltextSearchRequestDto::try_parsing(data).map_err(|error| {
+        ExecuteHandlerContentExtractedError::MessageParsingError(format!(
+            "Failed to parse extracted content message data: {}",
+            error
+        ))
+    })?;
+
+    info!(
+        ?search_request,
+        ?reply_to,
+        "Received fulltext search request, executing..."
+    );
+    let FulltextSearchRequestDto { content, .. } = search_request;
 
     let content = format!("🦄 Response for {content}");
 
+    let response = FulltextSearchResponseDto::Ok {
+        data: FulltextSearchResponseData { content },
+    };
+
     // Sends response to the given `reply_to` to mimic a RPC call
     message_repository
-        .publish(reply_to, serde_json::to_string(&content)?.as_bytes())
+        .rpc_respond(reply_to, serde_json::to_string(&response)?.as_bytes())
         .await?;
 
     info!("Successfully handled {} message", ROUTING_KEY);
