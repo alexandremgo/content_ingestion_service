@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+common = { path = "../common"}
 actix-web = "4.3.1"
 # To handle multipart/form-data request
 actix-multipart = "0.6.0"

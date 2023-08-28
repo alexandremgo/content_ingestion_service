@@ -3128,6 +3128,7 @@ dependencies = [
  "anyhow",
  "async-once-cell",
  "chrono",
+ "common",
  "config",
  "epub",
  "futures",

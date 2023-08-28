@@ -1,8 +1,8 @@
 use chrono::Utc;
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
 use rest_gateway::{
     configuration::{get_configuration, DatabaseSettings},
     startup::{get_connection_pool, get_rabbitmq_connection, Application},
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use s3::Bucket;
 use sqlx::{Connection, Executor, PgConnection, PgPool};

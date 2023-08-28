@@ -4,4 +4,3 @@ pub mod helper;
 pub mod repositories;
 pub mod routes;
 pub mod startup;
-pub mod telemetry;

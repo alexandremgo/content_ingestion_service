@@ -1,8 +1,5 @@
-use rest_gateway::{
-    configuration::get_configuration,
-    startup::Application,
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
-};
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
+use rest_gateway::{configuration::get_configuration, startup::Application};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
