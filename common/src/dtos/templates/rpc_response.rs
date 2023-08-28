@@ -30,8 +30,8 @@ impl<'a, T: Serialize + Deserialize<'a>> RpcResponse<T> {
     }
 
     pub fn try_serializing(response: &Self) -> Result<String, RpcResponseError> {
-        let response = serde_json::to_string(response)
-            .map_err(|e| RpcResponseError::InvalidResponse(e))?;
+        let response =
+            serde_json::to_string(response).map_err(|e| RpcResponseError::InvalidResponse(e))?;
 
         Ok(response)
     }

@@ -1,3 +1,4 @@
+use common::constants::routing_keys::EXTRACT_CONTENT_TEXT_ROUTING_KEY;
 use futures::lock::Mutex;
 use std::{collections::HashMap, sync::Arc};
 
@@ -18,9 +19,6 @@ use tracing::{error, info, info_span, warn, Instrument};
 use uuid::uuid;
 
 use crate::helpers::{spawn_app, TestApp};
-
-// TODO: define somewhere else
-pub const EXTRACT_CONTENT_BINDING_KEY: &str = "extract_content.text.v1";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn add_source_files_returns_a_200_for_valid_input_data() {
@@ -84,7 +82,13 @@ async fn add_source_files_persists_source_file_and_meta() {
     let mut app = spawn_app().await;
 
     let counter = Arc::new(Mutex::new(0_u32));
-    listen_to_content_exchange(&mut app, EXTRACT_CONTENT_BINDING_KEY, 2000, counter.clone()).await;
+    listen_to_content_exchange(
+        &mut app,
+        EXTRACT_CONTENT_TEXT_ROUTING_KEY,
+        2000,
+        counter.clone(),
+    )
+    .await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -140,7 +144,13 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     let mut app = spawn_app().await;
 
     let counter = Arc::new(Mutex::new(0_u32));
-    listen_to_content_exchange(&mut app, EXTRACT_CONTENT_BINDING_KEY, 2000, counter.clone()).await;
+    listen_to_content_exchange(
+        &mut app,
+        EXTRACT_CONTENT_TEXT_ROUTING_KEY,
+        2000,
+        counter.clone(),
+    )
+    .await;
 
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");

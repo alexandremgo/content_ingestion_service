@@ -2,20 +2,13 @@ use chrono::Utc;
 use common::dtos::extracted_content::ExtractedContentDto;
 use fake::{faker::lorem::en::Sentences, Fake};
 use fulltext_search_service::handlers::handler_content_extracted::{queue_name, ROUTING_KEY};
-use futures::lock::Mutex;
-use lapin::{
-    message::DeliveryResult,
-    options::{BasicConsumeOptions, BasicPublishOptions, QueueBindOptions, QueueDeclareOptions},
-    types::FieldTable,
-    BasicProperties,
-};
+use lapin::{options::BasicPublishOptions, BasicProperties};
 use serde_json::json;
-use std::sync::Arc;
 use tokio::time::{sleep, Duration};
-use tracing::{error, info, info_span, warn, Instrument};
+use tracing::info;
 use uuid::Uuid;
 
-use crate::helpers::{spawn_app, TestApp};
+use crate::helpers::spawn_app;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn handler_binds_queue_to_exchange_and_acknowledges_content_extracted_message_when_correct() {

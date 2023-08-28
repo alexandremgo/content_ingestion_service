@@ -4,13 +4,14 @@ use std::sync::Mutex;
 
 use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
-use crate::repositories::message_rabbitmq_repository::MessageRabbitMQRepository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
 use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, ResponseError};
 use anyhow::Context;
+use common::constants::routing_keys::EXTRACT_CONTENT_TEXT_ROUTING_KEY;
+use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tracing::{error, info};
@@ -30,6 +31,8 @@ pub enum AddSourceFilesError {
     RepositoryAccessError(String),
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
+    #[error("Error while serializing message data: {0}")]
+    JsonError(#[from] serde_json::Error),
 }
 
 impl std::fmt::Debug for AddSourceFilesError {
@@ -42,7 +45,8 @@ impl ResponseError for AddSourceFilesError {
     fn status_code(&self) -> StatusCode {
         match self {
             AddSourceFilesError::UnexpectedError(_)
-            | AddSourceFilesError::RepositoryAccessError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | AddSourceFilesError::RepositoryAccessError(_)
+            | AddSourceFilesError::JsonError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AddSourceFilesError::NoSourceFiles => StatusCode::BAD_REQUEST,
         }
     }
@@ -67,16 +71,6 @@ pub struct AddSourceFilesResponse {
     pub file_status: Vec<AddSourceFileStatus>,
 }
 
-/// Register the add source files route (adapter ? handler ?) to the http server and the needed RabbitMQ queue
-/// FIXME: to remove if not needed
-#[tracing::instrument(name = "Register add source files", skip(server_config))]
-pub fn register_add_source_files(
-    server_config: &mut web::ServiceConfig,
-    rabbitmq_channel: lapin::Channel,
-) {
-    server_config.route("/add_source_files", web::post().to(add_source_files));
-}
-
 /// Add source files to the object storage for a user
 #[tracing::instrument(
     name = "Add source files",
@@ -94,7 +88,7 @@ pub async fn add_source_files(
     pool: web::Data<PgPool>,
     s3_repository: web::Data<S3Repository>,
     source_meta_repository: web::Data<SourceMetaPostgresRepository>,
-    message_rabbitmq_repository: web::Data<Mutex<MessageRabbitMQRepository>>,
+    message_rabbitmq_repository: web::Data<Mutex<RabbitMQMessageRepository>>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -233,8 +227,10 @@ pub async fn add_source_files(
             ))
         })?;
 
+        let json_job = serde_json::to_string(&job)?;
+
         message_rabbitmq_repository
-            .publish_content_extract_job(job)
+            .publish(EXTRACT_CONTENT_TEXT_ROUTING_KEY, json_job.as_bytes())
             .await
             .context(format!(
                 "Could not send content extraction job request for the file {}",

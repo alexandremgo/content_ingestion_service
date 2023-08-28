@@ -3,6 +3,9 @@ use actix_web::{
     web::{self, Data},
     App, HttpServer,
 };
+use common::core::rabbitmq_message_repository::{
+    RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
+};
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -16,7 +19,6 @@ use tracing_actix_web::TracingLogger;
 use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
     repositories::{
-        message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
@@ -50,7 +52,7 @@ pub enum ApplicationBuildError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
-    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
 }
 
 impl Application {
@@ -78,7 +80,7 @@ impl Application {
             settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
         );
 
-        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+        let message_rabbitmq_repository = RabbitMQMessageRepository::new(
             rabbitmq_publishing_connection.clone(),
             &rabbitmq_content_exchange_name,
         );
@@ -136,7 +138,7 @@ pub fn run(
     _settings: Settings,
     nb_workers: Option<usize>,
     db_pool: PgPool,
-    message_rabbitmq_repository: MessageRabbitMQRepository,
+    message_rabbitmq_repository: RabbitMQMessageRepository,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
 ) -> Result<Server, std::io::Error> {
@@ -159,21 +161,20 @@ pub fn run(
         App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
-            // FIXME: This way of registering is not needed anymore ?
-            // .configure(|cfg| register_add_source_files(cfg, &rabbitmq_channel))
             .route("/add_source_files", web::post().to(add_source_files))
             // Used to create SQL transaction
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
             .data_factory(move || {
-                let mut message_rabbitmq_repository = message_rabbitmq_repository.clone();
+                let message_rabbitmq_repository = message_rabbitmq_repository.clone();
 
                 async {
-                    message_rabbitmq_repository.try_init().await?;
+                    let message_rabbitmq_repository =
+                        message_rabbitmq_repository.try_init().await?;
                     // Puts behind a mutex so the repository is mutable. But as the repository is cloned and then initialized inside
                     // each thread, it is not shared among all threads, and each thread mutates their own instance of the repository.
-                    Ok::<Mutex<MessageRabbitMQRepository>, ApplicationBuildError>(Mutex::new(
+                    Ok::<Mutex<RabbitMQMessageRepository>, ApplicationBuildError>(Mutex::new(
                         message_rabbitmq_repository,
                     ))
                 }

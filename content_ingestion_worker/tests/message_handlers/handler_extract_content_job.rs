@@ -1,10 +1,11 @@
+use common::constants::routing_keys::CONTENT_EXTRACTED_ROUTING_KEY;
 use futures::lock::Mutex;
 use std::sync::Arc;
 
 use chrono::Utc;
 use content_ingestion_worker::{
     domain::entities::extract_content_job::{ExtractContentJob, SourceType},
-    handlers::handler_extract_content_job::{CONTENT_EXTRACTED_MESSAGE_KEY, ROUTING_KEY},
+    handlers::handler_extract_content_job::ROUTING_KEY,
 };
 use lapin::{
     message::DeliveryResult,
@@ -173,7 +174,7 @@ async fn handler_publishes_extract_contented_on_correct_job() {
     let counter = Arc::new(Mutex::new(0_u32));
     listen_to_content_exchange(
         &mut app,
-        CONTENT_EXTRACTED_MESSAGE_KEY,
+        CONTENT_EXTRACTED_ROUTING_KEY,
         2000,
         counter.clone(),
     )
@@ -233,7 +234,7 @@ async fn handler_publishes_extract_contented_on_correct_job() {
         if approximate_retried_time_ms > timeout_extracted_content_ms {
             panic!(
                 "Timeout: did not received enough extracted content listening to {}: {}",
-                CONTENT_EXTRACTED_MESSAGE_KEY, 0
+                CONTENT_EXTRACTED_ROUTING_KEY, 0
             );
         }
 

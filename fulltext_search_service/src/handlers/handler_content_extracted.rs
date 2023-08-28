@@ -18,6 +18,7 @@ use crate::{
     },
 };
 use common::{
+    constants::routing_keys::CONTENT_EXTRACTED_ROUTING_KEY,
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
@@ -25,7 +26,7 @@ use common::{
     helper::error_chain_fmt,
 };
 
-pub const ROUTING_KEY: &str = "content_extracted.v1";
+pub const ROUTING_KEY: &str = CONTENT_EXTRACTED_ROUTING_KEY;
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerContentExtractedError {

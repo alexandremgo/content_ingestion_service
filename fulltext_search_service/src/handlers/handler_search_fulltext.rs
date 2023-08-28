@@ -14,6 +14,7 @@ use crate::repositories::meilisearch_content_repository::{
     MeilisearchContentRepository, MeilisearchContentRepositoryError,
 };
 use common::{
+    constants::routing_keys::SEARCH_FULLTEXT_ROUTING_KEY,
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
@@ -25,7 +26,7 @@ use common::{
     helper::error_chain_fmt,
 };
 
-pub const ROUTING_KEY: &str = "search_fulltext.v1";
+pub const ROUTING_KEY: &str = SEARCH_FULLTEXT_ROUTING_KEY;
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerSearchFulltextError {

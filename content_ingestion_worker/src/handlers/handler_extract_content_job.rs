@@ -24,14 +24,14 @@ use crate::{
 };
 
 use common::{
+    constants::routing_keys::{CONTENT_EXTRACTED_ROUTING_KEY, EXTRACT_CONTENT_TEXT_ROUTING_KEY},
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
     dtos::extracted_content::ExtractedContentDto,
 };
 
-pub const ROUTING_KEY: &str = "extract_content.text.v1";
-pub const CONTENT_EXTRACTED_MESSAGE_KEY: &str = "content_extracted.v1";
+pub const ROUTING_KEY: &str = EXTRACT_CONTENT_TEXT_ROUTING_KEY;
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerExtractContentJobError {
@@ -92,7 +92,7 @@ pub async fn register_handler(
         "Declared queue {} on exchange {}, binding on {}",
         queue.name(),
         exchange_name,
-        ROUTING_KEY
+        EXTRACT_CONTENT_TEXT_ROUTING_KEY
     );
 
     channel
@@ -294,7 +294,7 @@ pub async fn execute_handler(
         let json_dto =
             serde_json::to_string(&Into::<ExtractedContentDto>::into(extracted_content))?;
         message_rabbitmq_repository
-            .publish(CONTENT_EXTRACTED_MESSAGE_KEY, json_dto.as_bytes())
+            .publish(CONTENT_EXTRACTED_ROUTING_KEY, json_dto.as_bytes())
             .await?;
 
         i += 1;
