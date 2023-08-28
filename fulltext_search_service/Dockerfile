@@ -8,7 +8,6 @@ FROM chef as planner
 COPY . .
 # Computes a lock-like file for our project
 RUN cargo chef prepare --recipe-path recipe.json
-# RUN cargo chef prepare --recipe-path recipe.json --bin content_ingestion_service
 
 ##### Dependencies builder stage #####
 FROM chef as builder

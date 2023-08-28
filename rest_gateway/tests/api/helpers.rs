@@ -1,5 +1,5 @@
 use chrono::Utc;
-use content_ingestion_service::{
+use rest_gateway::{
     configuration::{get_configuration, DatabaseSettings},
     startup::{get_connection_pool, get_rabbitmq_connection, Application},
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},

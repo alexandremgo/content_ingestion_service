@@ -8,21 +8,21 @@ FROM chef as planner
 COPY . .
 # Computes a lock-like file for our project
 RUN cargo chef prepare --recipe-path recipe.json
-# RUN cargo chef prepare --recipe-path recipe.json --bin content_ingestion_service
+# RUN cargo chef prepare --recipe-path recipe.json --bin rest_gateway
 
 ##### Dependencies builder stage #####
 FROM chef as builder
 COPY --from=planner /app/recipe.json recipe.json
 # Builds our project dependencies, not our application!
 RUN cargo chef cook --release --recipe-path recipe.json
-# RUN cargo chef cook --release --recipe-path recipe.json --bin content_ingestion_service
+# RUN cargo chef cook --release --recipe-path recipe.json --bin rest_gateway
 # Up to this point, if our dependency tree stays the same,
 # all layers should be cached. 
 COPY . .
 # Offline mode using the cached metadata saved in `sqlx-data.json` from `sqlx prepare` 
 ENV SQLX_OFFLINE true
 # Builds our project
-RUN cargo build --release --bin content_ingestion_service
+RUN cargo build --release --bin rest_gateway
 
 ##### Runtime stage #####
 FROM debian:bullseye-slim AS runtime
@@ -37,7 +37,7 @@ RUN apt-get update -y \
   && apt-get autoremove -y \
   && apt-get clean -y \
   && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/content_ingestion_service content_ingestion_service
+COPY --from=builder /app/target/release/rest_gateway rest_gateway
 COPY configuration configuration
 ENV APP_ENVIRONMENT local
-ENTRYPOINT ["./content_ingestion_service"]
+ENTRYPOINT ["./rest_gateway"]

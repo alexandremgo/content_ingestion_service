@@ -1,4 +1,4 @@
-use content_ingestion_service::{
+use rest_gateway::{
     configuration::get_configuration,
     startup::Application,
     telemetry::{get_tracing_subscriber, init_tracing_subscriber},
@@ -7,7 +7,7 @@ use content_ingestion_service::{
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let tracing_subscriber = get_tracing_subscriber(
-        "content_ingestion_service".into(),
+        "rest_gateway".into(),
         "info".into(),
         std::io::stdout,
     );

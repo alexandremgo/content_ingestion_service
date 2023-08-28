@@ -1,7 +1,7 @@
 use futures::lock::Mutex;
 use std::{collections::HashMap, sync::Arc};
 
-use content_ingestion_service::{
+use rest_gateway::{
     domain::entities::source_meta::SourceType,
     routes::{AddSourceFilesResponse, Status},
 };

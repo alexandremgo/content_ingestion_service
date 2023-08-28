@@ -3,8 +3,8 @@ name: Service workflow
 on: 
   push:
     paths:
-    - "content_ingestion_service/**"
-    - ".github/workflows/content_ingestion_service.yml"
+    - "rest_gateway/**"
+    - ".github/workflows/rest_gateway.yml"
   pull_request:
 
 env:
@@ -19,7 +19,7 @@ concurrency:
 
 defaults:
   run:
-    working-directory: content_ingestion_service
+    working-directory: rest_gateway
 
 jobs:
   test:
@@ -88,7 +88,7 @@ jobs:
         run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_QDRANT=true ./scripts/init_infra.sh
 
       - name: Check sqlx-data.json is up-to-date
-        run: cargo sqlx prepare --check -- --bin content_ingestion_service
+        run: cargo sqlx prepare --check -- --bin rest_gateway
 
       - name: Run tests
         run: RUST_LOG="sqlx=error,info" TEST_LOG=enabled cargo test
@@ -139,5 +139,5 @@ jobs:
       - name: Migrate database
         run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_MINIO=true SKIP_QDRANT=true ./scripts/init_infra.sh
       - name: Linting
-        working-directory: ./content_ingestion_service
+        working-directory: ./rest_gateway
         run: cargo clippy --no-deps -- -D warnings

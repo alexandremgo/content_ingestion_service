@@ -2,7 +2,7 @@
 
 members = [
     "common",
-    "content_ingestion_service",
+    "rest_gateway",
     "content_ingestion_worker",
     "embedding_worker",
     "fulltext_search_service",

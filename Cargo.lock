@@ -891,48 +891,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
-name = "content_ingestion_service"
-version = "0.1.0"
-dependencies = [
- "actix-multipart",
- "actix-web",
- "anyhow",
- "async-once-cell",
- "chrono",
- "config",
- "epub",
- "futures",
- "genawaiter",
- "lapin",
- "lazy_static",
- "log",
- "once_cell",
- "pretty_env_logger",
- "quick-xml 0.28.2",
- "regex",
- "reqwest",
- "rust-s3",
- "secrecy",
- "serde",
- "serde-aux",
- "serde_json",
- "serial_test",
- "sqlx",
- "thiserror",
- "tokio",
- "tokio-executor-trait",
- "tokio-reactor-trait",
- "tokio-stream",
- "tracing",
- "tracing-actix-web",
- "tracing-bunyan-formatter",
- "tracing-log",
- "tracing-subscriber",
- "typed-builder",
- "uuid",
-]
-
-[[package]]
 name = "content_ingestion_worker"
 version = "0.1.0"
 dependencies = [
@@ -3159,6 +3117,48 @@ dependencies = [
  "web-sys",
  "webpki-roots",
  "winreg",
+]
+
+[[package]]
+name = "rest_gateway"
+version = "0.1.0"
+dependencies = [
+ "actix-multipart",
+ "actix-web",
+ "anyhow",
+ "async-once-cell",
+ "chrono",
+ "config",
+ "epub",
+ "futures",
+ "genawaiter",
+ "lapin",
+ "lazy_static",
+ "log",
+ "once_cell",
+ "pretty_env_logger",
+ "quick-xml 0.28.2",
+ "regex",
+ "reqwest",
+ "rust-s3",
+ "secrecy",
+ "serde",
+ "serde-aux",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tokio-executor-trait",
+ "tokio-reactor-trait",
+ "tokio-stream",
+ "tracing",
+ "tracing-actix-web",
+ "tracing-bunyan-formatter",
+ "tracing-log",
+ "tracing-subscriber",
+ "typed-builder",
+ "uuid",
 ]
 
 [[package]]
