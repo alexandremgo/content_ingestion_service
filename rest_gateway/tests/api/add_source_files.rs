@@ -1,10 +1,6 @@
 use futures::lock::Mutex;
 use std::{collections::HashMap, sync::Arc};
 
-use rest_gateway::{
-    domain::entities::source_meta::SourceType,
-    routes::{AddSourceFilesResponse, Status},
-};
 use lapin::{
     message::DeliveryResult,
     options::{BasicAckOptions, BasicConsumeOptions, QueueBindOptions, QueueDeclareOptions},
@@ -12,6 +8,10 @@ use lapin::{
 };
 use regex::Regex;
 use reqwest::multipart::{Form, Part};
+use rest_gateway::{
+    domain::entities::source_meta::SourceType,
+    routes::{AddSourceFilesResponse, Status},
+};
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
 use tracing::{error, info, info_span, warn, Instrument};

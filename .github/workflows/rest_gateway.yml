@@ -1,4 +1,4 @@
-name: Service workflow
+name: REST Gateway Workflow
 
 on: 
   push:
@@ -23,7 +23,7 @@ defaults:
 
 jobs:
   test:
-    name: Service Tests
+    name: REST Gateway Tests
     runs-on: ubuntu-latest
 
     services:
