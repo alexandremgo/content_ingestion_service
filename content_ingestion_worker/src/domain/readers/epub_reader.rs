@@ -1,9 +1,10 @@
+use common::helper::error_chain_fmt;
 use epub::doc::{DocError, EpubDoc};
 use serde_json::{json, Map, Value as JsonValue};
 use std::io::{Read, Seek};
 use tracing::{debug, info};
 
-use crate::{domain::entities::meta_read::MetaRead, helper::error_chain_fmt};
+use crate::domain::entities::meta_read::MetaRead;
 
 const EPUB_READER_META_KEY: &str = "epub";
 const EPUB_READER_META_KEY_DEFAULT_INITIAL: &str = "initial";

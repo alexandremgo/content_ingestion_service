@@ -1,3 +1,4 @@
+use common::helper::error_chain_fmt;
 use futures::Future;
 use genawaiter::{
     sync::{gen, Gen},
@@ -7,10 +8,7 @@ use serde_json::Value as JsonValue;
 use std::{io::Read, pin::Pin};
 use tracing::{debug, error};
 
-use crate::{
-    domain::entities::{extracted_content::ExtractedContent, meta_read::MetaRead},
-    helper::error_chain_fmt,
-};
+use crate::domain::entities::{extracted_content::ExtractedContent, meta_read::MetaRead};
 
 pub const DEFAULT_NB_WORDS_PER_YIELD: usize = 100;
 

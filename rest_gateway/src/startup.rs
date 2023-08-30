@@ -11,7 +11,7 @@ use secrecy::ExposeSecret;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
     net::TcpListener,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 use tracing::info;
 use tracing_actix_web::TracingLogger;

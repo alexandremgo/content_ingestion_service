@@ -1,4 +1,4 @@
-use content_ingestion_worker::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
 
 use once_cell::sync::Lazy;
 

@@ -1,10 +1,11 @@
 use std::io::Read;
 
+use common::helper::error_chain_fmt;
 use lopdf::Document;
 use serde_json::{json, Map, Value as JsonValue};
 use tracing::info;
 
-use crate::{domain::entities::meta_read::MetaRead, helper::error_chain_fmt};
+use crate::domain::entities::meta_read::MetaRead;
 
 const PDF_READER_META_KEY: &str = "pdf";
 const PDF_READER_META_KEY_DEFAULT_INITIAL: &str = "initial";

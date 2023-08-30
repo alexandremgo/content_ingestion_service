@@ -1,10 +1,10 @@
 use std::io::Read;
 
 use chrono::Utc;
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
 use content_ingestion_worker::{
     configuration::get_configuration,
     startup::{get_rabbitmq_connection, Application},
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use lapin::{Channel, Connection as RabbitMQConnection};
 use s3::Bucket;

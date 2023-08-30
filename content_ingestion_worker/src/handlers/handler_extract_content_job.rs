@@ -19,7 +19,6 @@ use crate::{
         extractors::extract_content_generator::extract_content_generator,
         readers::{epub_reader::EpubReader, xml_reader},
     },
-    helper::error_chain_fmt,
     repositories::source_file_s3_repository::{S3Repository, S3RepositoryError},
 };
 
@@ -29,6 +28,7 @@ use common::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
     dtos::extracted_content::ExtractedContentDto,
+    helper::error_chain_fmt,
 };
 
 pub const ROUTING_KEY: &str = EXTRACT_CONTENT_TEXT_ROUTING_KEY;

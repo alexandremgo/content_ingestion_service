@@ -1,9 +1,10 @@
+use common::helper::error_chain_fmt;
 use quick_xml::events::Event;
 use serde_json::{json, Map, Value as JsonValue};
 use std::io::{BufReader, ErrorKind, Read};
 use tracing::debug;
 
-use crate::{domain::entities::meta_read::MetaRead, helper::error_chain_fmt};
+use crate::domain::entities::meta_read::MetaRead;
 
 #[derive(thiserror::Error)]
 pub enum XMLReaderError {
