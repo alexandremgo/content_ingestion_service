@@ -183,7 +183,7 @@ pub async fn register_handler(
                         message: error.to_string(),
                     };
 
-                    if let Ok(response) = FulltextSearchResponseDto::try_serializing(&response) {
+                    if let Ok(response) = response.try_serializing() {
                         // Sends response to the given `reply_to` to mimic a RPC call
                         let _ = message_repository
                             .rpc_respond(reply_to.as_str(), response.as_bytes())
@@ -257,9 +257,11 @@ pub async fn execute_handler(
         ?reply_to,
         "Received fulltext search request, executing..."
     );
-    let FulltextSearchRequestDto { content, .. } = search_request;
+    let FulltextSearchRequestDto { query, .. } = search_request;
 
-    let content = format!("🦄 Response for {content}");
+    let results = content_repository.search(&query).await;
+
+    let content = format!("🦄 Response for {query}: {:?}", results);
 
     let response = FulltextSearchResponseDto::Ok {
         data: FulltextSearchResponseData { content },

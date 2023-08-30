@@ -30,6 +30,27 @@ impl MeilisearchContentRepository {
 
         Ok(())
     }
+
+    #[tracing::instrument(name = "Searching content from Meilishearch", skip(self))]
+    pub async fn search(
+        &self,
+        query: &str,
+    ) -> Result<
+        Vec<meilisearch_sdk::search::SearchResult<ContentEntity>>,
+        MeilisearchContentRepositoryError,
+    > {
+        let result = self
+            .client
+            .index(&self.index)
+            .search()
+            .with_query(query)
+            .execute::<ContentEntity>()
+            .await?;
+
+        info!(?result, "Result:");
+
+        Ok(result.hits)
+    }
 }
 
 #[derive(thiserror::Error)]

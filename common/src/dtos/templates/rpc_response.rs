@@ -21,24 +21,24 @@ pub enum RpcResponse<T> {
 }
 
 impl<'a, T: Serialize + Deserialize<'a>> RpcResponse<T> {
-    pub fn try_parsing(response: &'a [u8]) -> Result<Self, RpcResponseError> {
+    pub fn try_parsing(response: &'a [u8]) -> Result<Self, RpcResponseEncodingError> {
         let response = std::str::from_utf8(response)?;
         let response = serde_json::from_str(response)
-            .map_err(|e| RpcResponseError::InvalidJsonData(e, response.to_string()))?;
+            .map_err(|e| RpcResponseEncodingError::InvalidJsonData(e, response.to_string()))?;
 
         Ok(response)
     }
 
-    pub fn try_serializing(response: &Self) -> Result<String, RpcResponseError> {
-        let response =
-            serde_json::to_string(response).map_err(|e| RpcResponseError::InvalidResponse(e))?;
+    pub fn try_serializing(&self) -> Result<String, RpcResponseEncodingError> {
+        let response = serde_json::to_string(self)
+            .map_err(|e| RpcResponseEncodingError::InvalidResponse(e))?;
 
         Ok(response)
     }
 }
 
 #[derive(thiserror::Error)]
-pub enum RpcResponseError {
+pub enum RpcResponseEncodingError {
     #[error("Data could not be converted from utf8 array to string")]
     InvalidUtf8Data(#[from] std::str::Utf8Error),
 
@@ -49,7 +49,7 @@ pub enum RpcResponseError {
     InvalidResponse(serde_json::Error),
 }
 
-impl std::fmt::Debug for RpcResponseError {
+impl std::fmt::Debug for RpcResponseEncodingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
     }

@@ -4,14 +4,15 @@ use std::sync::Mutex;
 
 use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
+use crate::repositories::source_file_s3_repository::S3Repository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
-use crate::{helper::error_chain_fmt, repositories::source_file_s3_repository::S3Repository};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, ResponseError};
 use anyhow::Context;
 use common::constants::routing_keys::EXTRACT_CONTENT_TEXT_ROUTING_KEY;
 use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
+use common::helper::error_chain_fmt;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tracing::{error, info};
@@ -88,7 +89,7 @@ pub async fn add_source_files(
     pool: web::Data<PgPool>,
     s3_repository: web::Data<S3Repository>,
     source_meta_repository: web::Data<SourceMetaPostgresRepository>,
-    message_rabbitmq_repository: web::Data<Mutex<RabbitMQMessageRepository>>,
+    message_rabbitmq_repository: web::Data<RabbitMQMessageRepository>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
     // TODO: real user
     let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
@@ -219,13 +220,6 @@ pub async fn add_source_files(
             object_store_path_name: object_path_name,
             source_initial_name: file_name.clone(),
         };
-
-        let mut message_rabbitmq_repository = message_rabbitmq_repository.lock().map_err(|e| {
-            AddSourceFilesError::RepositoryAccessError(format!(
-                "Could not lock RabbitMQ message repository: {}",
-                e
-            ))
-        })?;
 
         let json_job = serde_json::to_string(&job)?;
 

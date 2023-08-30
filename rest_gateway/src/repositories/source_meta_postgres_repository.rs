@@ -1,10 +1,8 @@
 use chrono::Utc;
+use common::helper::error_chain_fmt;
 use sqlx::{Postgres, Transaction};
 
-use crate::{
-    domain::entities::source_meta::{SourceMeta, SourceType},
-    helper::error_chain_fmt,
-};
+use crate::domain::entities::source_meta::{SourceMeta, SourceType};
 
 pub struct SourceMetaPostgresRepository {
     // Not needed as a transaction is always used

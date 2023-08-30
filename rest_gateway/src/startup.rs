@@ -22,7 +22,7 @@ use crate::{
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
-    routes::{add_source_files::add_source_files, health_check},
+    routes::{add_source_files::add_source_files, health_check, search_content},
 };
 
 /// Holds the newly built server, and some useful properties
@@ -162,6 +162,7 @@ pub fn run(
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
             .route("/add_source_files", web::post().to(add_source_files))
+            .route("/search", web::post().to(search_content))
             // Used to create SQL transaction
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
@@ -172,11 +173,17 @@ pub fn run(
                 async {
                     let message_rabbitmq_repository =
                         message_rabbitmq_repository.try_init().await?;
+
                     // Puts behind a mutex so the repository is mutable. But as the repository is cloned and then initialized inside
                     // each thread, it is not shared among all threads, and each thread mutates their own instance of the repository.
-                    Ok::<Mutex<RabbitMQMessageRepository>, ApplicationBuildError>(Mutex::new(
+                    // The idea: a thread could re-initialize the repository if the channel is closed for ex.
+                    // But is it necessary ?
+                    // Ok::<Mutex<RabbitMQMessageRepository>, ApplicationBuildError>(Mutex::new(
+                    //     message_rabbitmq_repository,
+                    // ))
+                    Ok::<RabbitMQMessageRepository, ApplicationBuildError>(
                         message_rabbitmq_repository,
-                    ))
+                    )
                 }
             })
     })

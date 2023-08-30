@@ -7,7 +7,6 @@ use fulltext_search_service::handlers::handler_search_fulltext::{queue_name, ROU
 use serde_json::json;
 use tokio::time::{sleep, Duration};
 use tracing::info;
-use uuid::Uuid;
 
 use crate::helpers::spawn_app;
 
@@ -29,9 +28,8 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_search_fulltext_reques
     .unwrap();
 
     let search_request = FulltextSearchRequestDto {
-        id: Uuid::new_v4(),
         metadata: json!({}),
-        content: Sentences(3..10).fake::<Vec<String>>().join(" "),
+        query: Sentences(3..10).fake::<Vec<String>>().join(" "),
     };
     let search_request = serde_json::to_string(&search_request).unwrap();
     info!("Fulltext Search request message: {}", search_request);
@@ -87,7 +85,6 @@ async fn handler_returns_error_response_on_incorrect_search_fulltext_request_and
     .unwrap();
 
     let a_request_missing_metadata = json!({
-        "id": Uuid::new_v4(),
         "content": Sentences(3..10).fake::<Vec<String>>().join(" "),
     });
     let a_request_missing_metadata = a_request_missing_metadata.to_string();

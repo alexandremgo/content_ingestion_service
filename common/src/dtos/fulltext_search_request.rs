@@ -1,14 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use uuid::Uuid;
 
 use crate::helper::error_chain_fmt;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FulltextSearchRequestDto {
-    pub id: Uuid,
     pub metadata: JsonValue,
-    pub content: String,
+    pub query: String,
 }
 
 impl FulltextSearchRequestDto {
@@ -19,15 +17,21 @@ impl FulltextSearchRequestDto {
 
         Ok(my_data)
     }
+
+    pub fn try_serializing(&self) -> Result<String, FulltextSearchRequestDtoError> {
+        Ok(serde_json::to_string(self)
+            .map_err(|e| FulltextSearchRequestDtoError::InvalidRequest(e))?)
+    }
 }
 
 #[derive(thiserror::Error)]
 pub enum FulltextSearchRequestDtoError {
-    #[error("Data could not be converted from utf8 u8 vector to string")]
-    InvalidStringData(#[from] std::str::Utf8Error),
-
+    #[error("Data could not be converted from utf8 array to string")]
+    InvalidUtf8Data(#[from] std::str::Utf8Error),
     #[error("Data did not represent a valid JSON object: {0}. Data: {1}")]
     InvalidJsonData(serde_json::Error, String),
+    #[error("Request could not be serialized from its JSON representation: {0}")]
+    InvalidRequest(serde_json::Error),
 }
 
 impl std::fmt::Debug for FulltextSearchRequestDtoError {

@@ -293,6 +293,7 @@ pub async fn execute_handler(
 
         let json_dto =
             serde_json::to_string(&Into::<ExtractedContentDto>::into(extracted_content))?;
+
         message_rabbitmq_repository
             .publish(CONTENT_EXTRACTED_ROUTING_KEY, json_dto.as_bytes())
             .await?;
