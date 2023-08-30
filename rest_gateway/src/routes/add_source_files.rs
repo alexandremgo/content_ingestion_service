@@ -1,7 +1,3 @@
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::Mutex;
-
 use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
 use crate::repositories::source_file_s3_repository::S3Repository;
@@ -15,6 +11,8 @@ use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
 use common::helper::error_chain_fmt;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::path::Path;
+use std::str::FromStr;
 use tracing::{error, info};
 use uuid::uuid;
 

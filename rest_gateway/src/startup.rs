@@ -9,10 +9,7 @@ use common::core::rabbitmq_message_repository::{
 use s3::{creds::Credentials, Bucket, BucketConfiguration, Region};
 use secrecy::ExposeSecret;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{
-    net::TcpListener,
-    sync::Arc,
-};
+use std::{net::TcpListener, sync::Arc};
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
@@ -38,7 +35,7 @@ pub struct Application {
     // RabbitMQ
     // rabbitmq_connection: lapin::Connection,
     // rabbitmq_queue_name_prefix: String,
-    rabbitmq_publishing_connection: Arc<lapin::Connection>,
+    _rabbitmq_publishing_connection: Arc<lapin::Connection>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -104,7 +101,7 @@ impl Application {
             server,
             port,
             s3_bucket,
-            rabbitmq_publishing_connection,
+            _rabbitmq_publishing_connection: rabbitmq_publishing_connection,
             // rabbitmq_connection,
             // rabbitmq_queue_name_prefix,
         })
