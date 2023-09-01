@@ -20,7 +20,9 @@ use common::{
     },
     dtos::{
         fulltext_search_request::FulltextSearchRequestDto,
-        fulltext_search_response::{FulltextSearchResponseData, FulltextSearchResponseDto},
+        fulltext_search_response::{
+            FulltextSearchResponseData, FulltextSearchResponseDto, ResultContent,
+        },
         templates::rpc_response::RpcErrorStatus,
     },
     helper::error_chain_fmt,
@@ -237,7 +239,7 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 
 #[tracing::instrument(
     name = "Executing handler on fulltext search request",
-    skip(message_repository, content_repository,)
+    skip(message_repository, content_repository, data)
 )]
 pub async fn execute_handler(
     message_repository: &RabbitMQMessageRepository,
@@ -257,14 +259,28 @@ pub async fn execute_handler(
         ?reply_to,
         "Received fulltext search request, executing..."
     );
-    let FulltextSearchRequestDto { query, .. } = search_request;
+    let FulltextSearchRequestDto { query, limit, .. } = search_request;
 
-    let results = content_repository.search(&query).await;
+    let results = content_repository.search(&query, limit).await?;
 
-    let content = format!("🦄 Response for {query}: {:?}", results);
+    info!(?results, "Full result from search");
+
+    let response_data: Vec<ResultContent> = results
+        .into_iter()
+        .map(|result| {
+            let content_entity = result.result;
+            return ResultContent {
+                id: content_entity.id,
+                metadata: content_entity.metadata,
+                content: content_entity.content,
+            };
+        })
+        .collect();
 
     let response = FulltextSearchResponseDto::Ok {
-        data: FulltextSearchResponseData { content },
+        data: FulltextSearchResponseData {
+            results: response_data,
+        },
     };
 
     // Sends response to the given `reply_to` to mimic a RPC call

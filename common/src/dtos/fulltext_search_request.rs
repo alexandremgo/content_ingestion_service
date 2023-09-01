@@ -7,6 +7,7 @@ use crate::helper::error_chain_fmt;
 pub struct FulltextSearchRequestDto {
     pub metadata: JsonValue,
     pub query: String,
+    pub limit: Option<usize>,
 }
 
 impl FulltextSearchRequestDto {

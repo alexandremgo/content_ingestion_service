@@ -3,10 +3,15 @@ use common::dtos::{
     fulltext_search_response::FulltextSearchResponseDto, templates::rpc_response::RpcErrorStatus,
 };
 use fake::{faker::lorem::en::Sentences, Fake};
-use fulltext_search_service::handlers::handler_search_fulltext::{queue_name, ROUTING_KEY};
+use fulltext_search_service::{
+    domain::entities::content::ContentEntity,
+    handlers::handler_search_fulltext::{queue_name, ROUTING_KEY},
+};
 use serde_json::json;
+use serde_json::Value as JsonValue;
 use tokio::time::{sleep, Duration};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::helpers::spawn_app;
 
@@ -27,9 +32,22 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_search_fulltext_reques
     .await
     .unwrap();
 
+    // Sets up the Meilisearch index (implicitly created if it does not exist) and a fake content.
+    // The query content is parts of the fake content saved in our db.
+    let content_in_db = Sentences(3..10).fake::<Vec<String>>().join(" ");
+    let content_query = (&content_in_db[..3]).to_string(); // Just the 3 first letters
+    app.save_content_to_meilisearch(&ContentEntity {
+        id: Uuid::new_v4(),
+        metadata: JsonValue::Null,
+        content: content_in_db,
+    })
+    .await
+    .unwrap();
+
     let search_request = FulltextSearchRequestDto {
         metadata: json!({}),
-        query: Sentences(3..10).fake::<Vec<String>>().join(" "),
+        query: content_query,
+        limit: None,
     };
     let search_request = serde_json::to_string(&search_request).unwrap();
     info!("Fulltext Search request message: {}", search_request);

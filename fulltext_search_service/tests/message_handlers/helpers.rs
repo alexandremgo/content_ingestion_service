@@ -7,9 +7,11 @@ use common::{
 };
 use fulltext_search_service::{
     configuration::get_configuration,
-    startup::{get_rabbitmq_connection, Application},
+    domain::entities::content::ContentEntity,
+    startup::{get_meilisearch_client, get_rabbitmq_connection, Application},
 };
 use lapin::{Channel, Connection as RabbitMQConnection};
+use meilisearch_sdk::{tasks::Task, Client};
 use tokio::time::{sleep, Duration};
 use tracing::info;
 use uuid::Uuid;
@@ -57,7 +59,10 @@ pub struct TestApp {
     pub rabbitmq_channel: Channel,
     // To publish and rpc_call messages for tests
     pub rabbitmq_message_repository: RabbitMQMessageRepository,
-    // TODO: connection to Meilisearch
+
+    // To setup tests using Meilisearch
+    pub meilisearch_client: Client,
+    pub meilisearch_content_index: String,
 }
 
 #[derive(Debug)]
@@ -68,10 +73,6 @@ pub struct QueueBindingInfo {
 
 impl TestApp {
     /// Helper function to wait until a queue is declared and bound to an exchange with a given routing key
-    ///
-    /// TODO:
-    /// # Returns
-    /// A Result containing a list of `QueueBindingInfo` if no issue occurred, or an error string message
     #[tracing::instrument(
         name = "Helper waiting until queue is declared and consumer is bound",
         skip(self)
@@ -193,6 +194,31 @@ impl TestApp {
     pub async fn reset_rabbitmq_channel(&mut self) {
         self.rabbitmq_channel = self.rabbitmq_connection.create_channel().await.unwrap();
     }
+
+    /// Save a content to Meilisearch for tests.
+    /// It waits for the task to be processed.
+    pub async fn save_content_to_meilisearch(&self, content: &ContentEntity) -> Result<(), String> {
+        let task = self
+            .meilisearch_client
+            .index(&self.meilisearch_content_index)
+            .add_or_replace(&[content], None)
+            .await
+            .map_err(|err| {
+                format!(
+                    "Failed to add content to Meilisearch during tests to index {}: {}",
+                    self.meilisearch_content_index, err
+                )
+            })?;
+
+        let status = self
+            .meilisearch_client
+            .wait_for_task(task, None, None)
+            .await
+            .unwrap();
+        assert!(matches!(status, Task::Succeeded { .. }));
+
+        Ok(())
+    }
 }
 
 /// Launches the worker/server/RabbitMQ connection as a background task
@@ -257,6 +283,9 @@ pub async fn spawn_app() -> TestApp {
     );
     let rabbitmq_message_repository = rabbitmq_message_repository.try_init().await.unwrap();
 
+    let meilisearch_client = get_meilisearch_client(&configuration.meilisearch);
+    let meilisearch_content_index = configuration.meilisearch.contents_index.clone();
+
     tokio::spawn(application.run_until_stopped());
 
     info!("The application worker has been spawned into a new thread");
@@ -268,5 +297,7 @@ pub async fn spawn_app() -> TestApp {
         rabbitmq_channel,
         rabbitmq_management_api_config,
         rabbitmq_message_repository,
+        meilisearch_client,
+        meilisearch_content_index,
     }
 }

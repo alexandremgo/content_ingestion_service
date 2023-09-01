@@ -1,12 +1,21 @@
+use std::{sync::Arc, time::Duration};
+
 use chrono::Utc;
 use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
+use lapin::{
+    message::DeliveryResult,
+    options::{BasicConsumeOptions, BasicPublishOptions, QueueBindOptions, QueueDeclareOptions},
+    types::FieldTable,
+    BasicProperties,
+};
 use rest_gateway::{
     configuration::{get_configuration, DatabaseSettings},
     startup::{get_connection_pool, get_rabbitmq_connection, Application},
 };
 use s3::Bucket;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
-use tracing::info;
+use tokio::time::sleep;
+use tracing::{error, info, info_span, warn, Instrument};
 use uuid::Uuid;
 
 use once_cell::sync::Lazy;
@@ -48,6 +57,150 @@ impl TestApp {
     /// Re-creates a new RabbitMQ channel from the test suite RabbitMQ connection
     pub async fn reset_rabbitmq_channel(&mut self) {
         self.rabbitmq_channel = self.rabbitmq_connection.create_channel().await.unwrap();
+    }
+
+    /// Consumes RPC messages from a queue bound to the content exchange with a given binding key
+    /// and respond to them
+    ///
+    /// The correct declaration of the exchange is also checked.
+    ///
+    /// # Panics
+    /// Panics if the exchange is not declared and a queue could not bing to it after `timeout_binding_exchange_ms` milliseconds
+    ///
+    /// # Parameters
+    /// - `app`: the test app (to use and reset the rabbitmq channel)
+    /// - `routing_key`: the binding key to bind a generated queue to the content exchange
+    /// - `timeout_binding_exchange_ms`: the maximum time to wait for the exchange to be declared correctly so a queue can be bound to it
+    /// - `response`: the response to return from the RPC message
+    pub async fn listen_and_respond_from_rpc(
+        &mut self,
+        routing_key: &str,
+        timeout_binding_exchange_ms: usize,
+        response: Vec<u8>,
+    ) {
+        let mut approximate_retried_time_ms = 0;
+        let retry_sleep_step_ms = 500;
+
+        let mut queue_name = "".to_string();
+
+        // Retries to bind a queue to the content exchange until `timeout_binding_exchange_ms`
+        loop {
+            // When supplying an empty string queue name, RabbitMQ generates a name for us, returned from the queue declaration request
+            let queue = self
+                .rabbitmq_channel
+                .queue_declare("", QueueDeclareOptions::default(), FieldTable::default())
+                .await
+                .unwrap();
+
+            match self
+                .rabbitmq_channel
+                .queue_bind(
+                    queue.name().as_str(),
+                    &self.rabbitmq_content_exchange_name,
+                    routing_key,
+                    QueueBindOptions::default(),
+                    FieldTable::default(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    queue_name = queue.name().as_str().to_owned();
+                    break;
+                }
+                Err(error) => match error {
+                    lapin::Error::ProtocolError(_) | lapin::Error::InvalidChannelState(_) => {
+                        warn!(
+                            "RabbitMQ queue error: queue {} does not exist, retrying ...",
+                            queue_name
+                        );
+                        // When the queue does not exist, the channel is closed
+                        self.reset_rabbitmq_channel().await;
+                    }
+                    _ => {
+                        panic!(
+                            "Unknown error while checking for the RabbitMQ queue {:?}",
+                            queue_name
+                        );
+                    }
+                },
+            };
+
+            approximate_retried_time_ms += retry_sleep_step_ms;
+            if approximate_retried_time_ms > timeout_binding_exchange_ms {
+                panic!(
+                    "Timeout: could not bind a queue to the exchange {} with the binding key {}",
+                    &self.rabbitmq_content_exchange_name, routing_key
+                );
+            }
+
+            sleep(Duration::from_millis(retry_sleep_step_ms as u64)).await;
+        }
+
+        info!(
+            "Declared queue {} on exchange {}, binding on {}",
+            queue_name, self.rabbitmq_content_exchange_name, routing_key
+        );
+
+        let consumer = self
+            .rabbitmq_channel
+            .basic_consume(
+                &queue_name,
+                "",
+                BasicConsumeOptions {
+                    no_ack: true,
+                    ..BasicConsumeOptions::default()
+                },
+                FieldTable::default(),
+            )
+            .await
+            .unwrap();
+
+        let consumer_channel = self.rabbitmq_connection.create_channel().await.unwrap();
+        let consumer_channel = Arc::new(consumer_channel);
+
+        consumer.set_delegate(move |delivery: DeliveryResult| {
+            let channel = consumer_channel.clone();
+            let response = response.clone();
+
+            async move {
+                let delivery = match delivery {
+                    // Carries the delivery alongside its channel
+                    Ok(Some(delivery)) => delivery,
+                    // The consumer got canceled
+                    Ok(None) => return,
+                    // Carries the error and is always followed by Ok(None)
+                    Err(error) => {
+                        error!(?error, "Failed to consume queue message");
+                        return;
+                    }
+                };
+
+                info!("Received test message: {:?}\n", delivery);
+
+                let reply_to = delivery
+                    .properties
+                    .reply_to()
+                    .as_ref()
+                    .expect("No reply-to property in RPC test message")
+                    .to_string();
+
+                let current_time_ms = Utc::now().timestamp_millis() as u64;
+
+                channel
+                    .basic_publish(
+                        "",
+                        &reply_to,
+                        BasicPublishOptions::default(),
+                        &response,
+                        BasicProperties::default()
+                            .with_timestamp(current_time_ms)
+                            .with_message_id(Uuid::new_v4().to_string().into()),
+                    )
+                    .await
+                    .expect("Coult not respond to RPC message ");
+            }
+            .instrument(info_span!("Handling test RPC message",))
+        });
     }
 }
 

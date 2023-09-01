@@ -1,11 +1,29 @@
+use common::{
+    constants::routing_keys::SEARCH_FULLTEXT_ROUTING_KEY,
+    dtos::fulltext_search_response::{FulltextSearchResponseData, FulltextSearchResponseDto},
+};
 use tracing::info;
 
 use crate::helpers::spawn_app;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_content_returns_a_response() {
-    let app = spawn_app().await;
+async fn search_content_returns_a_response_from_a_valid_request() {
+    let mut app = spawn_app().await;
 
+    // Sets up a fake response from the search service
+    let fake_response = FulltextSearchResponseDto::Ok {
+        data: FulltextSearchResponseData { results: vec![] },
+    };
+    let fake_response = fake_response.try_serializing().unwrap();
+
+    app.listen_and_respond_from_rpc(
+        SEARCH_FULLTEXT_ROUTING_KEY,
+        5000,
+        Vec::from(fake_response.as_bytes()),
+    )
+    .await;
+
+    // Acts
     let body = serde_json::json!({
         "query": "test"
     });
@@ -19,6 +37,6 @@ async fn search_content_returns_a_response() {
 
     info!("Response: {:?}", response);
 
+    // Asserts
     assert!(response.status().is_success());
-    assert_eq!(Some(0), response.content_length());
 }

@@ -22,6 +22,7 @@ pub async fn search_content(
     let request = FulltextSearchRequestDto {
         metadata: JsonValue::Null,
         query: body.query.clone(),
+        limit: body.limit,
     };
     let request = request.try_serializing()?;
 
@@ -37,6 +38,7 @@ pub async fn search_content(
 #[derive(Debug, serde::Deserialize)]
 pub struct BodyData {
     query: String,
+    limit: Option<usize>,
 }
 
 #[derive(thiserror::Error)]

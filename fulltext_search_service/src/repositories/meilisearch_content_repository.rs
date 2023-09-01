@@ -4,6 +4,8 @@ use tracing::info;
 
 use crate::domain::entities::content::ContentEntity;
 
+const DEFAULT_SEARCH_LIMIT: usize = 10;
+
 /// Repository for `ContentEntity` persisted in Meilisearch
 pub struct MeilisearchContentRepository {
     client: Client,
@@ -35,21 +37,29 @@ impl MeilisearchContentRepository {
     pub async fn search(
         &self,
         query: &str,
+        limit: Option<usize>,
     ) -> Result<
         Vec<meilisearch_sdk::search::SearchResult<ContentEntity>>,
         MeilisearchContentRepositoryError,
     > {
+        let limit = limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
+
         let result = self
             .client
             .index(&self.index)
             .search()
             .with_query(query)
+            .with_limit(limit)
             .execute::<ContentEntity>()
             .await?;
 
         info!(?result, "Result:");
 
         Ok(result.hits)
+    }
+
+    pub fn index(&self) -> String {
+        self.index.clone()
     }
 }
 
