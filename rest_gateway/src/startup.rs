@@ -15,7 +15,9 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
+    middlewares::jwt_authentication::middleware::RequireAuth,
     repositories::{
+        authentication_jwt_repository::AuthenticationJwtRepository,
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
@@ -87,6 +89,11 @@ impl Application {
 
         let source_meta_repository = SourceMetaPostgresRepository::new();
 
+        let auth_repository = AuthenticationJwtRepository::new(
+            settings.jwt.secret.clone(),
+            settings.jwt.expire_in_s as i64,
+        );
+
         let server = run(
             listener,
             settings,
@@ -95,6 +102,7 @@ impl Application {
             message_rabbitmq_repository,
             s3_repository,
             source_meta_repository,
+            auth_repository,
         )?;
 
         Ok(Self {
@@ -138,6 +146,7 @@ pub fn run(
     message_rabbitmq_repository: RabbitMQMessageRepository,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
+    auth_repository: AuthenticationJwtRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);
@@ -147,6 +156,7 @@ pub fn run(
     // Those repositories are shared among all threads.
     let s3_repository = Data::new(s3_repository);
     let source_meta_repository = Data::new(source_meta_repository);
+    let auth_repository = Data::new(auth_repository);
 
     // `move` to capture variables from the surrounding environment
     let server = HttpServer::new(move || {
@@ -158,7 +168,12 @@ pub fn run(
         App::new()
             .wrap(TracingLogger::default())
             .route("/health_check", web::get().to(health_check))
-            .route("/add_source_files", web::post().to(add_source_files))
+            .route(
+                "/add_source_files",
+                web::post()
+                    .to(add_source_files)
+                    .wrap(RequireAuth::new(auth_repository.clone())),
+            )
             .route("/search", web::post().to(search_content))
             // Used to create SQL transaction
             .app_data(db_pool.clone())

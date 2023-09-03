@@ -16,3 +16,8 @@ object_storage:
 rabbitmq:
   port: 5672
   content_exchange: "content"
+
+jwt:
+  secret: "secret"
+  expire_in_s: 60
+  cookie_max_age_s: 60

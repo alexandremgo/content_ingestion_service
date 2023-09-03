@@ -13,6 +13,7 @@ pub struct Settings {
     pub database: DatabaseSettings,
     pub object_storage: ObjectStorageSettings,
     pub rabbitmq: RabbitMQSettings,
+    pub jwt: JWTSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -20,6 +21,13 @@ pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct JWTSettings {
+    pub secret: Secret<String>,
+    pub expire_in_s: u64,
+    pub cookie_max_age_s: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
