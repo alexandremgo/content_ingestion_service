@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone)]
 pub struct AuthenticationJwtRepository {
     secret: Secret<String>,
-    expire_in_s: i64,
+    default_expire_in_s: i64,
 }
 
 // TODO: iss: issuer in claims ?
@@ -29,16 +29,29 @@ pub struct TokenClaims {
 }
 
 impl AuthenticationJwtRepository {
-    pub fn new(secret: Secret<String>, expire_in_s: i64) -> Self {
+    pub fn new(secret: Secret<String>, default_expire_in_s: i64) -> Self {
         Self {
             secret,
-            expire_in_s,
+            default_expire_in_s,
         }
     }
 
-    /// Creates a new JWT token
-    #[tracing::instrument(name = "Create JWT token", skip(self))]
+    /// Creates a new JWT token with default expire in
     pub fn create_token(&self, user_id: &str) -> Result<String, AuthenticationJwtRepositoryError> {
+        self.create_token_with_expire_in(user_id, self.default_expire_in_s)
+    }
+
+    /// Creates a new JWT token with given expire in
+    ///
+    /// # Params
+    /// - `user_id`: user id
+    /// - `expire_in_s`: expire in, in seconds, can be negative
+    #[tracing::instrument(name = "Create JWT token", skip(self))]
+    pub fn create_token_with_expire_in(
+        &self,
+        user_id: &str,
+        expire_in_s: i64,
+    ) -> Result<String, AuthenticationJwtRepositoryError> {
         if user_id.is_empty() {
             return Err(AuthenticationJwtRepositoryError::InvalidData(
                 "Missing user id".to_string(),
@@ -47,7 +60,7 @@ impl AuthenticationJwtRepository {
 
         let now = Utc::now();
         let iat = now.timestamp() as usize;
-        let exp = (now + Duration::seconds(self.expire_in_s)).timestamp() as usize;
+        let exp = (now + Duration::seconds(expire_in_s)).timestamp() as usize;
         let claims: TokenClaims = TokenClaims {
             sub: user_id.to_string(),
             exp,
@@ -63,6 +76,10 @@ impl AuthenticationJwtRepository {
     }
 
     /// Decodes a JWT token
+    ///
+    /// Validation:
+    /// - validation on expire time is set to true by default (`validate_exp`) is set to true by default
+    /// - leeway set to 60s by default
     #[tracing::instrument(name = "Decode JWT token", skip(self))]
     pub fn decode_token(&self, token: &str) -> Result<String, AuthenticationJwtRepositoryError> {
         let decoded = decode::<TokenClaims>(
@@ -71,7 +88,6 @@ impl AuthenticationJwtRepository {
             &Validation::new(Algorithm::HS256),
         );
 
-        // TODO: need to check expiring time, or `decode` handles it ?
         match decoded {
             Ok(token) => Ok(token.claims.sub),
             Err(err) => Err(AuthenticationJwtRepositoryError::DecodingError(err)),
@@ -158,12 +174,13 @@ mod tests {
     #[test]
     fn on_expired_token_decode_should_fail() {
         let secret = Secret::new("my-secret-key".to_string());
-        let auth_repo = AuthenticationJwtRepository::new(secret, -60);
+        let auth_repo = AuthenticationJwtRepository::new(secret, 60);
 
-        let expired_token = auth_repo.create_token("user123").unwrap();
+        // Leeway of 60s by default
+        let expired_token = auth_repo
+            .create_token_with_expire_in("user123", -61)
+            .unwrap();
         let result = auth_repo.decode_token(&expired_token);
-
-        println!("RESULT: {:?}", result);
 
         assert!(result.is_err());
         assert!(matches!(
