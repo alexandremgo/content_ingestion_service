@@ -12,12 +12,12 @@ use actix_web::{
 use futures::{future::LocalBoxFuture, FutureExt};
 use uuid::Uuid;
 
-use crate::repositories::authentication_jwt_repository::AuthenticationJwtRepository;
+use crate::repositories::jwt_authentication_repository::JwtAuthenticationRepository;
 
 /// Middleware responsible for handling authentication and user information extraction.
 pub struct AuthMiddleware<S> {
     service: Rc<S>,
-    auth_repository: web::Data<AuthenticationJwtRepository>,
+    auth_repository: web::Data<JwtAuthenticationRepository>,
 }
 
 impl<S> Service<ServiceRequest> for AuthMiddleware<S>
@@ -79,11 +79,11 @@ where
 
 /// Middleware factory for requiring authentication.
 pub struct RequireAuth {
-    auth_repository: web::Data<AuthenticationJwtRepository>,
+    auth_repository: web::Data<JwtAuthenticationRepository>,
 }
 
 impl RequireAuth {
-    pub fn new(auth_repository: web::Data<AuthenticationJwtRepository>) -> Self {
+    pub fn new(auth_repository: web::Data<JwtAuthenticationRepository>) -> Self {
         Self { auth_repository }
     }
 }

@@ -17,7 +17,7 @@ use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
     middlewares::jwt_authentication::middleware::RequireAuth,
     repositories::{
-        authentication_jwt_repository::AuthenticationJwtRepository,
+        jwt_authentication_repository::JwtAuthenticationRepository,
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
@@ -89,7 +89,7 @@ impl Application {
 
         let source_meta_repository = SourceMetaPostgresRepository::new();
 
-        let auth_repository = AuthenticationJwtRepository::new(
+        let auth_repository = JwtAuthenticationRepository::new(
             settings.jwt.secret.clone(),
             settings.jwt.expire_in_s as i64,
         );
@@ -146,7 +146,7 @@ pub fn run(
     message_rabbitmq_repository: RabbitMQMessageRepository,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
-    auth_repository: AuthenticationJwtRepository,
+    auth_repository: JwtAuthenticationRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
     let db_pool = Data::new(db_pool);

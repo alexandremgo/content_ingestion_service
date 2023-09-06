@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Used in middleware and in route handler.
 #[derive(Clone)]
-pub struct AuthenticationJwtRepository {
+pub struct JwtAuthenticationRepository {
     secret: Secret<String>,
     default_expire_in_s: i64,
 }
@@ -28,7 +28,7 @@ pub struct TokenClaims {
     pub exp: usize,
 }
 
-impl AuthenticationJwtRepository {
+impl JwtAuthenticationRepository {
     pub fn new(secret: Secret<String>, default_expire_in_s: i64) -> Self {
         Self {
             secret,
@@ -37,7 +37,7 @@ impl AuthenticationJwtRepository {
     }
 
     /// Creates a new JWT token with default expire in
-    pub fn create_token(&self, user_id: &str) -> Result<String, AuthenticationJwtRepositoryError> {
+    pub fn create_token(&self, user_id: &str) -> Result<String, JwtAuthenticationRepositoryError> {
         self.create_token_with_expire_in(user_id, self.default_expire_in_s)
     }
 
@@ -51,9 +51,9 @@ impl AuthenticationJwtRepository {
         &self,
         user_id: &str,
         expire_in_s: i64,
-    ) -> Result<String, AuthenticationJwtRepositoryError> {
+    ) -> Result<String, JwtAuthenticationRepositoryError> {
         if user_id.is_empty() {
-            return Err(AuthenticationJwtRepositoryError::InvalidData(
+            return Err(JwtAuthenticationRepositoryError::InvalidData(
                 "Missing user id".to_string(),
             ));
         }
@@ -72,7 +72,7 @@ impl AuthenticationJwtRepository {
             &claims,
             &EncodingKey::from_secret(self.secret.expose_secret().as_bytes()),
         )
-        .map_err(|err| AuthenticationJwtRepositoryError::EncodingError(err))
+        .map_err(|err| JwtAuthenticationRepositoryError::EncodingError(err))
     }
 
     /// Decodes a JWT token
@@ -81,7 +81,7 @@ impl AuthenticationJwtRepository {
     /// - validation on expire time is set to true by default (`validate_exp`) is set to true by default
     /// - leeway set to 60s by default
     #[tracing::instrument(name = "Decode JWT token", skip(self))]
-    pub fn decode_token(&self, token: &str) -> Result<String, AuthenticationJwtRepositoryError> {
+    pub fn decode_token(&self, token: &str) -> Result<String, JwtAuthenticationRepositoryError> {
         let decoded = decode::<TokenClaims>(
             token.into(),
             &DecodingKey::from_secret(self.secret.expose_secret().as_bytes()),
@@ -90,13 +90,13 @@ impl AuthenticationJwtRepository {
 
         match decoded {
             Ok(token) => Ok(token.claims.sub),
-            Err(err) => Err(AuthenticationJwtRepositoryError::DecodingError(err)),
+            Err(err) => Err(JwtAuthenticationRepositoryError::DecodingError(err)),
         }
     }
 }
 
 #[derive(thiserror::Error)]
-pub enum AuthenticationJwtRepositoryError {
+pub enum JwtAuthenticationRepositoryError {
     #[error("Invalid JWT token while decoding: {0}")]
     DecodingError(jsonwebtoken::errors::Error),
     #[error("Error while encoding JWT token: {0}")]
@@ -105,20 +105,20 @@ pub enum AuthenticationJwtRepositoryError {
     InvalidData(String),
 }
 
-impl std::fmt::Debug for AuthenticationJwtRepositoryError {
+impl std::fmt::Debug for JwtAuthenticationRepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
     }
 }
 
-impl ResponseError for AuthenticationJwtRepositoryError {
+impl ResponseError for JwtAuthenticationRepositoryError {
     fn status_code(&self) -> StatusCode {
         match self {
-            AuthenticationJwtRepositoryError::InvalidData(_)
-            | AuthenticationJwtRepositoryError::EncodingError(_) => {
+            JwtAuthenticationRepositoryError::InvalidData(_)
+            | JwtAuthenticationRepositoryError::EncodingError(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
-            AuthenticationJwtRepositoryError::DecodingError(_) => StatusCode::UNAUTHORIZED,
+            JwtAuthenticationRepositoryError::DecodingError(_) => StatusCode::UNAUTHORIZED,
         }
     }
 }
@@ -132,7 +132,7 @@ mod tests {
     fn on_valid_token_it_should_create_and_decode_correctly() {
         let user_id = "user123";
         let secret = Secret::new("my-secret-key".to_string());
-        let auth_repo = AuthenticationJwtRepository::new(secret, 60);
+        let auth_repo = JwtAuthenticationRepository::new(secret, 60);
 
         let token = auth_repo.create_token(user_id).unwrap();
         let decoded_user_id = auth_repo.decode_token(&token).unwrap();
@@ -144,14 +144,14 @@ mod tests {
     fn on_empty_user_id_token_create_should_fail() {
         let user_id = "";
         let secret = Secret::new("my-secret-key".to_string());
-        let auth_repo = AuthenticationJwtRepository::new(secret, 60);
+        let auth_repo = JwtAuthenticationRepository::new(secret, 60);
 
         let result = auth_repo.create_token(user_id);
 
         assert!(result.is_err());
         assert!(matches!(
             result,
-            Err(AuthenticationJwtRepositoryError::InvalidData(_))
+            Err(JwtAuthenticationRepositoryError::InvalidData(_))
         ))
     }
 
@@ -159,7 +159,7 @@ mod tests {
     fn on_invalid_token_decode_should_fail() {
         let secret = Secret::new("my-secret-key".to_string());
         let invalid_token = "invalid-token";
-        let auth_repo = AuthenticationJwtRepository::new(secret, 60);
+        let auth_repo = JwtAuthenticationRepository::new(secret, 60);
 
         let result = auth_repo.decode_token(invalid_token);
 
@@ -167,14 +167,14 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(AuthenticationJwtRepositoryError::DecodingError(_))
+            Err(JwtAuthenticationRepositoryError::DecodingError(_))
         ));
     }
 
     #[test]
     fn on_expired_token_decode_should_fail() {
         let secret = Secret::new("my-secret-key".to_string());
-        let auth_repo = AuthenticationJwtRepository::new(secret, 60);
+        let auth_repo = JwtAuthenticationRepository::new(secret, 60);
 
         // Leeway of 60s by default
         let expired_token = auth_repo
@@ -185,7 +185,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result,
-            Err(AuthenticationJwtRepositoryError::DecodingError(_))
+            Err(JwtAuthenticationRepositoryError::DecodingError(_))
         ));
     }
 }
