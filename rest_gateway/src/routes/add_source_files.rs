@@ -1,5 +1,6 @@
 use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
+use crate::middlewares::jwt_authentication::middleware::UserIdFromToken;
 use crate::repositories::source_file_s3_repository::S3Repository;
 use crate::repositories::source_meta_postgres_repository::SourceMetaPostgresRepository;
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
@@ -14,7 +15,6 @@ use sqlx::PgPool;
 use std::path::Path;
 use std::str::FromStr;
 use tracing::{error, info};
-use uuid::uuid;
 
 #[derive(Debug, MultipartForm)]
 pub struct UploadForm {
@@ -88,9 +88,10 @@ pub async fn add_source_files(
     s3_repository: web::Data<S3Repository>,
     source_meta_repository: web::Data<SourceMetaPostgresRepository>,
     message_rabbitmq_repository: web::Data<RabbitMQMessageRepository>,
+    user_id: web::ReqData<UserIdFromToken>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
-    // TODO: real user
-    let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
+    let user_id = user_id.into_inner().0;
+    info!("🦄 GOT user_id: {}", user_id);
 
     let mut response = AddSourceFilesResponse {
         file_status: Vec::new(),

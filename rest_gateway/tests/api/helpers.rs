@@ -10,9 +10,11 @@ use lapin::{
 };
 use rest_gateway::{
     configuration::{get_configuration, DatabaseSettings},
+    repositories::jwt_authentication_repository::JwtAuthenticationRepository,
     startup::{get_connection_pool, get_rabbitmq_connection, Application},
 };
 use s3::Bucket;
+use secrecy::Secret;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use tokio::time::sleep;
 use tracing::{error, info, info_span, warn, Instrument};
@@ -50,6 +52,9 @@ pub struct TestApp {
     rabbitmq_connection: lapin::Connection,
     pub rabbitmq_channel: lapin::Channel,
     pub rabbitmq_content_exchange_name: String,
+
+    // To fake authentication for tests
+    jwt_authentication_repository: JwtAuthenticationRepository,
 }
 
 /// A test API client / test suite
@@ -202,6 +207,19 @@ impl TestApp {
             .instrument(info_span!("Handling test RPC message",))
         });
     }
+
+    /// Returns a tuple (user_id, token)
+    ///
+    /// Could take an optional input user_id to re-create a token
+    pub fn get_test_user_token(&self) -> (Uuid, String) {
+        let user_id = Uuid::new_v4();
+        let token = self
+            .jwt_authentication_repository
+            .create_token(&user_id.to_string())
+            .unwrap();
+
+        (user_id, token)
+    }
 }
 
 /// Launches the server as a background task
@@ -239,6 +257,9 @@ pub async fn spawn_app() -> TestApp {
             Uuid::new_v4()
         );
 
+        // Uses a random known JWT secret
+        c.jwt.secret = Secret::new(Uuid::new_v4().to_string());
+
         c
     };
 
@@ -264,6 +285,12 @@ pub async fn spawn_app() -> TestApp {
     // Launches the application as a background task
     let _ = tokio::spawn(application.run_until_stopped());
 
+    // Needed authentication JWT repository
+    let jwt_authentication_repository = JwtAuthenticationRepository::new(
+        configuration.jwt.secret.clone(),
+        configuration.jwt.expire_in_s as i64,
+    );
+
     TestApp {
         address: format!("http://127.0.0.1:{}", application_port),
         port: application_port,
@@ -275,6 +302,7 @@ pub async fn spawn_app() -> TestApp {
             "{}_{}",
             configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
         ),
+        jwt_authentication_repository,
     }
 }
 

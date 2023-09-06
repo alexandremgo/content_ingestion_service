@@ -8,7 +8,10 @@ use lapin::{
     types::FieldTable,
 };
 use regex::Regex;
-use reqwest::multipart::{Form, Part};
+use reqwest::{
+    header::{HeaderValue, AUTHORIZATION},
+    multipart::{Form, Part},
+};
 use rest_gateway::{
     domain::entities::source_meta::SourceType,
     routes::{AddSourceFilesResponse, Status},
@@ -16,7 +19,6 @@ use rest_gateway::{
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
 use tracing::{error, info, info_span, warn, Instrument};
-use uuid::uuid;
 
 use crate::helpers::{spawn_app, TestApp};
 
@@ -25,6 +27,9 @@ async fn add_source_files_returns_a_200_for_valid_input_data() {
     // Arranges
     let app = spawn_app().await;
     let file_name = "example.epub";
+
+    // Fake user and access token
+    let (_, token) = app.get_test_user_token();
 
     // Creates a multipart field (a file) from the text content
     let epub_part = Part::text("This is a test file")
@@ -36,6 +41,10 @@ async fn add_source_files_returns_a_200_for_valid_input_data() {
     // Acts
     let response = reqwest::Client::new()
         .post(&format!("{}/add_source_files", &app.address))
+        .header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        )
         .multipart(form)
         .send()
         .await
@@ -60,6 +69,8 @@ async fn add_source_files_returns_a_200_for_valid_input_data() {
 async fn add_source_files_returns_a_400_when_input_data_is_missing() {
     // Arranges
     let app = spawn_app().await;
+    // Fake user and access token
+    let (_, token) = app.get_test_user_token();
 
     // Creates a form without any multipart field
     let form = Form::new();
@@ -67,6 +78,10 @@ async fn add_source_files_returns_a_400_when_input_data_is_missing() {
     // Acts
     let response = reqwest::Client::new()
         .post(&format!("{}/add_source_files", &app.address))
+        .header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        )
         .multipart(form)
         .send()
         .await
@@ -90,8 +105,8 @@ async fn add_source_files_persists_source_file_and_meta() {
     )
     .await;
 
-    // TODO: real user
-    let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
+    // Fake user and access token
+    let (user_id, token) = app.get_test_user_token();
 
     let file_name = "example.epub";
     let file_content = "This is a test file";
@@ -106,6 +121,10 @@ async fn add_source_files_persists_source_file_and_meta() {
     // Acts
     reqwest::Client::new()
         .post(&format!("{}/add_source_files", &app.address))
+        .header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        )
         .multipart(form)
         .send()
         .await
@@ -152,8 +171,9 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     )
     .await;
 
-    // TODO: real user
-    let user_id = uuid!("f0041f88-8ad9-444f-b85a-7c522741ceae");
+    // Fake user and access token
+    let (user_id, token) = app.get_test_user_token();
+
     const NUMBER_FILES: usize = 10;
 
     let mut form = Form::new();
@@ -173,6 +193,10 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
     // Acts
     let response = reqwest::Client::new()
         .post(&format!("{}/add_source_files", &app.address))
+        .header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        )
         .multipart(form)
         .send()
         .await

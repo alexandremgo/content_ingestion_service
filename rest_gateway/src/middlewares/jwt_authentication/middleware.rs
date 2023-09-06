@@ -1,18 +1,22 @@
-use std::{
-    future::{ready, Ready},
-    rc::Rc,
-    task::{Context, Poll},
-};
-
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
     error::ErrorUnauthorized,
     http, web, HttpMessage,
 };
 use futures::{future::LocalBoxFuture, FutureExt};
+use serde::{Deserialize, Serialize};
+use std::{
+    future::{ready, Ready},
+    rc::Rc,
+    task::{Context, Poll},
+};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::repositories::jwt_authentication_repository::JwtAuthenticationRepository;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UserIdFromToken(pub Uuid);
 
 /// Middleware responsible for handling authentication and user information extraction.
 pub struct AuthMiddleware<S> {
@@ -61,13 +65,23 @@ where
             Err(e) => return Box::pin(ready(Err(e.into()))),
         };
 
+        let user_id = match Uuid::parse_str(user_id.as_str()) {
+            Ok(user_id) => user_id,
+            Err(error) => {
+                error!(?error, "Provided user id could not be parsed to uuid");
+
+                return Box::pin(ready(Err(ErrorUnauthorized(
+                    "Provided user id is not valid",
+                ))));
+            }
+        };
+
         let srv = Rc::clone(&self.service);
 
         // Handles user id extraction, insertion into request extensions and continue the request processing
         async move {
-            let user_id = Uuid::parse_str(user_id.as_str()).unwrap();
-
-            req.extensions_mut().insert::<Uuid>(user_id);
+            req.extensions_mut()
+                .insert::<UserIdFromToken>(UserIdFromToken(user_id));
 
             // Calls the wrapped service to handle the request
             let res = srv.call(req).await?;
