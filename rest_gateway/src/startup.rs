@@ -21,7 +21,7 @@ use crate::{
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
-    routes::{add_source_files::add_source_files, health_check, search_content},
+    controllers::{add_source_files::add_source_files, health_check, search_content},
 };
 
 /// Holds the newly built server, and some useful properties

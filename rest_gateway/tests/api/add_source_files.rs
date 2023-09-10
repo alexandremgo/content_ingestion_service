@@ -14,7 +14,7 @@ use reqwest::{
 };
 use rest_gateway::{
     domain::entities::source_meta::SourceType,
-    routes::{AddSourceFilesResponse, Status},
+    controllers::{AddSourceFilesResponse, Status},
 };
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
