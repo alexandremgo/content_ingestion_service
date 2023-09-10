@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use common::dtos::extract_content_job::SourceTypeDto;
 use std::str::FromStr;
 use typed_builder::TypedBuilder;
 use uuid::Uuid;
@@ -16,6 +17,14 @@ impl FromStr for SourceType {
         match s {
             "epub" => Ok(SourceType::Epub),
             _ => Err(format!("Invalid SourceType: {}", s)),
+        }
+    }
+}
+
+impl From<SourceType> for SourceTypeDto {
+    fn from(value: SourceType) -> Self {
+        match value {
+            SourceType::Epub => SourceTypeDto::Epub,
         }
     }
 }

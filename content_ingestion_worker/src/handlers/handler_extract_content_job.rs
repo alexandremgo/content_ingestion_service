@@ -3,6 +3,7 @@ use std::{io::Cursor, sync::Arc};
 
 use genawaiter::GeneratorState;
 use lapin::{
+    message::Delivery,
     options::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
         QueueBindOptions, QueueDeclareOptions,
@@ -15,7 +16,6 @@ use tracing::{error, info, info_span, Instrument};
 
 use crate::{
     domain::{
-        entities::extract_content_job::ExtractContentJob,
         extractors::extract_content_generator::extract_content_generator,
         readers::{epub_reader::EpubReader, xml_reader},
     },
@@ -27,7 +27,7 @@ use common::{
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
-    dtos::extracted_content::ExtractedContentDto,
+    dtos::{extract_content_job::ExtractContentJobDto, extracted_content::ExtractedContentDto},
     helper::error_chain_fmt,
 };
 
@@ -65,6 +65,7 @@ impl std::fmt::Debug for RegisterHandlerExtractContentJobError {
 pub async fn register_handler(
     rabbitmq_consuming_connection: RabbitMQConnection,
     exchange_name: String,
+    queue_name_prefix: String,
     s3_repository: Arc<S3Repository>,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
     message_rabbitmq_repository: RabbitMQMessageRepository,
@@ -83,21 +84,26 @@ pub async fn register_handler(
         )
         .await?;
 
+    // In order to have several nodes of this service as consumers of the same queue: use a specific queue name
+    let queue_name = queue_name(&queue_name_prefix);
+
     // When supplying an empty string queue name, RabbitMQ generates a name for us, returned from the queue declaration request
-    let queue = channel
-        .queue_declare("", QueueDeclareOptions::default(), FieldTable::default())
+    let _ = channel
+        .queue_declare(
+            &queue_name,
+            QueueDeclareOptions::default(),
+            FieldTable::default(),
+        )
         .await?;
 
     info!(
         "Declared queue {} on exchange {}, binding on {}",
-        queue.name(),
-        exchange_name,
-        EXTRACT_CONTENT_TEXT_ROUTING_KEY
+        queue_name, exchange_name, EXTRACT_CONTENT_TEXT_ROUTING_KEY
     );
 
     channel
         .queue_bind(
-            queue.name().as_str(),
+            &queue_name,
             &exchange_name,
             ROUTING_KEY,
             QueueBindOptions::default(),
@@ -111,12 +117,7 @@ pub async fn register_handler(
     };
 
     let mut consumer = channel
-        .basic_consume(
-            queue.name().as_str(),
-            "",
-            consumer_options,
-            FieldTable::default(),
-        )
+        .basic_consume(&queue_name, "", consumer_options, FieldTable::default())
         .await?;
 
     // One (for publishing) channel for this collection of handlers
@@ -133,9 +134,7 @@ pub async fn register_handler(
 
     info!(
         "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
-        queue.name(),
-        exchange_name,
-        ROUTING_KEY,
+        queue_name, exchange_name, ROUTING_KEY,
     );
 
     while let Some(delivery) = consumer.next().await {
@@ -147,30 +146,16 @@ pub async fn register_handler(
                 Err(error) => {
                     error!(
                         ?error,
-                        "Failed to consume queue message on queue {}",
-                        queue.name()
+                        "Failed to consume queue message on queue {}", queue_name
                     );
                     return;
                 }
             };
-
-            let extract_content_job = match ExtractContentJob::try_parsing(&delivery.data) {
-                Ok(job) => job,
-                Err(error) => {
-                    error!(
-                        ?error,
-                        "Failed to parse extract_content_job message data: {}", error
-                    );
-                    return;
-                }
-            };
-
-            info!("Received extract content job: {:?}\n", extract_content_job);
 
             match execute_handler(
                 s3_repository.clone(),
                 &message_rabbitmq_repository,
-                &extract_content_job,
+                &delivery,
             )
             .await
             {
@@ -180,19 +165,11 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
-                        error!(
-                            ?error,
-                            ?extract_content_job,
-                            "Failed to ack extract_content_job message"
-                        );
+                        error!(?error, "Failed to ack extract_content_job message");
                     }
                 }
                 Err(error) => {
-                    error!(
-                        ?error,
-                        ?extract_content_job,
-                        "Failed to handle extract_content_job message"
-                    );
+                    error!(?error, "Failed to handle extract_content_job message");
 
                     // TODO: maybe depending on the error we could reject the message and not just nack
                     info!(
@@ -200,11 +177,7 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
-                        error!(
-                            ?error,
-                            ?extract_content_job,
-                            "Failed to nack extract_content_job message"
-                        );
+                        error!(?error, "Failed to nack extract_content_job message");
                     }
                 }
             }
@@ -213,13 +186,17 @@ pub async fn register_handler(
             "Handling consumed message",
             routing_key = ROUTING_KEY,
             exchange = exchange_name,
-            queue = %queue.name(),
+            queue = queue_name,
             message_id = %uuid::Uuid::new_v4(),
         ))
         .await
     }
 
     Ok(())
+}
+
+pub fn queue_name(queue_name_prefix: &str) -> String {
+    format!("{}_{}", queue_name_prefix, ROUTING_KEY)
 }
 
 #[derive(thiserror::Error)]
@@ -230,6 +207,8 @@ pub enum ExecuteHandlerExtractContentJobError {
     RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
     #[error("Error while serializing message data: {0}")]
     JsonError(#[from] serde_json::Error),
+    #[error("{0}")]
+    MessageParsingError(String),
 }
 
 impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
@@ -240,14 +219,22 @@ impl std::fmt::Debug for ExecuteHandlerExtractContentJobError {
 
 #[tracing::instrument(
     name = "Executing handler on extract content job",
-    skip(s3_repository, message_rabbitmq_repository)
+    skip(s3_repository, message_rabbitmq_repository, message)
 )]
 pub async fn execute_handler(
     s3_repository: Arc<S3Repository>,
     message_rabbitmq_repository: &RabbitMQMessageRepository,
-    job: &ExtractContentJob,
+    message: &Delivery,
 ) -> Result<(), ExecuteHandlerExtractContentJobError> {
-    let ExtractContentJob {
+    let job = ExtractContentJobDto::try_parsing(&message.data).map_err(|error| {
+        ExecuteHandlerExtractContentJobError::MessageParsingError(format!(
+            "Failed to parse extract content job message data: {}",
+            error
+        ))
+    })?;
+    info!(?job, "Received extract content job");
+
+    let ExtractContentJobDto {
         object_store_path_name,
         source_type,
         source_initial_name,
@@ -257,7 +244,7 @@ pub async fn execute_handler(
     // There is probably a way to stream the content of the file from the S3 bucket,
     // and not put it into memory. Or stream saving the content in a temp file, and
     // access the content with a BufReader.
-    let file_content = s3_repository.get_file(object_store_path_name).await?;
+    let file_content = s3_repository.get_file(&object_store_path_name).await?;
 
     // In-memory file-like object/reader implementing `Seek`.
     // Note: for EPUB (or any format needing a `Seek` impl), we will always need to load the file in-memory ?)

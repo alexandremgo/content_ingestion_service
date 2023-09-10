@@ -1,12 +1,12 @@
-use common::constants::routing_keys::CONTENT_EXTRACTED_ROUTING_KEY;
+use common::{
+    constants::routing_keys::CONTENT_EXTRACTED_ROUTING_KEY,
+    dtos::extract_content_job::{ExtractContentJobDto, SourceTypeDto},
+};
 use futures::lock::Mutex;
 use std::sync::Arc;
 
 use chrono::Utc;
-use content_ingestion_worker::{
-    domain::entities::extract_content_job::{ExtractContentJob, SourceType},
-    handlers::handler_extract_content_job::ROUTING_KEY,
-};
+use content_ingestion_worker::handlers::handler_extract_content_job::ROUTING_KEY;
 use lapin::{
     message::DeliveryResult,
     options::{BasicConsumeOptions, BasicPublishOptions, QueueBindOptions, QueueDeclareOptions},
@@ -42,9 +42,9 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_extract_content_job_wh
             )
         });
 
-    let job = ExtractContentJob {
+    let job = ExtractContentJobDto {
         source_meta_id: Uuid::new_v4(),
-        source_type: SourceType::Epub,
+        source_type: SourceTypeDto::Epub,
         object_store_path_name: format!("{}/{}", Uuid::new_v4(), "test.epub"),
         source_initial_name: "test.epub".to_string(),
     };
@@ -117,9 +117,9 @@ async fn handler_negative_acknowledges_extract_content_job_when_file_not_in_s3()
             )
         });
 
-    let job = ExtractContentJob {
+    let job = ExtractContentJobDto {
         source_meta_id: Uuid::new_v4(),
-        source_type: SourceType::Epub,
+        source_type: SourceTypeDto::Epub,
         object_store_path_name: format!("{}/{}", Uuid::new_v4(), "test.epub"),
         source_initial_name: "test.epub".to_string(),
     };
@@ -180,9 +180,9 @@ async fn handler_publishes_extract_contented_on_correct_job() {
     )
     .await;
 
-    let job = ExtractContentJob {
+    let job = ExtractContentJobDto {
         source_meta_id: Uuid::new_v4(),
-        source_type: SourceType::Epub,
+        source_type: SourceTypeDto::Epub,
         object_store_path_name: format!("{}/{}", Uuid::new_v4(), "test.epub"),
         source_initial_name: "test.epub".to_string(),
     };

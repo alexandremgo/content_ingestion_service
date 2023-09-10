@@ -15,13 +15,13 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
+    controllers::{add_source_files::add_source_files, health_check, search_content},
     middlewares::jwt_authentication::middleware::RequireAuth,
     repositories::{
         jwt_authentication_repository::JwtAuthenticationRepository,
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
     },
-    controllers::{add_source_files::add_source_files, health_check, search_content},
 };
 
 /// Holds the newly built server, and some useful properties

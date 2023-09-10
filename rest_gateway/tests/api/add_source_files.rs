@@ -13,8 +13,8 @@ use reqwest::{
     multipart::{Form, Part},
 };
 use rest_gateway::{
-    domain::entities::source_meta::SourceType,
     controllers::{AddSourceFilesResponse, Status},
+    domain::entities::source_meta::SourceType,
 };
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;

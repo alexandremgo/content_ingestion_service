@@ -8,6 +8,7 @@ object_storage:
 rabbitmq:
   port: 5672
   content_exchange: "content"
+  queue_name_prefix: "fulltext_search_service"
 
 meilisearch:
   port: 7700

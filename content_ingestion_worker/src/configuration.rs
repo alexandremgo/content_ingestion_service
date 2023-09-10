@@ -46,6 +46,8 @@ pub struct RabbitMQSettings {
 
     /// To separate tests, development and production exchanges
     pub exchange_name_prefix: String,
+    pub queue_name_prefix: String,
+
     pub content_exchange: String,
 }
 

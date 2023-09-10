@@ -18,6 +18,7 @@ pub struct Application {
     // RabbitMQ
     rabbitmq_publishing_connection: Arc<RabbitMQConnection>,
     rabbitmq_content_exchange_name: String,
+    rabbitmq_queue_name_prefix: String,
 
     // S3
     // Used for integration tests
@@ -55,6 +56,7 @@ impl Application {
         let mut app = Self {
             rabbitmq_publishing_connection,
             rabbitmq_content_exchange_name,
+            rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
             s3_bucket,
             handlers: vec![],
         };
@@ -89,6 +91,7 @@ impl Application {
     ) -> Result<(), ApplicationError> {
         let s3_repository = s3_repository.clone();
         let exchange_name = self.rabbitmq_content_exchange_name.clone();
+        let queue_name_prefix = self.rabbitmq_queue_name_prefix.clone();
 
         // We could have several message handlers running in parallel bound with the same binding key to the same exchange.
         // Or other message handlers bound with a different binding key to the same or another exchange.
@@ -96,6 +99,7 @@ impl Application {
             handler_extract_content_job::register_handler(
                 rabbitmq_consuming_connection,
                 exchange_name,
+                queue_name_prefix,
                 s3_repository,
                 message_rabbitmq_repository.clone(),
             )

@@ -1,4 +1,3 @@
-use crate::domain::entities::extract_content_job::ExtractContentJob;
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
 use crate::middlewares::jwt_authentication::middleware::UserIdFromToken;
 use crate::repositories::source_file_s3_repository::S3Repository;
@@ -9,6 +8,7 @@ use actix_web::{web, HttpResponse, ResponseError};
 use anyhow::Context;
 use common::constants::routing_keys::EXTRACT_CONTENT_TEXT_ROUTING_KEY;
 use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
+use common::dtos::extract_content_job::ExtractContentJobDto;
 use common::helper::error_chain_fmt;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -213,9 +213,9 @@ pub async fn add_source_files(
         //         object_name
         //     ))?;
 
-        let job = ExtractContentJob {
+        let job = ExtractContentJobDto {
             source_meta_id: source_meta.id,
-            source_type,
+            source_type: source_type.into(),
             object_store_path_name: object_path_name,
             source_initial_name: file_name.clone(),
         };
