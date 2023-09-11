@@ -1,10 +1,11 @@
--- Create SourceMeta Table
+-- Create the `source_metas` table and `source_type` enum type
+
 -- timestamptz is a time-zone aware date and time type
 CREATE TYPE source_type AS ENUM ('epub');
 
 -- TODO: user_id foreign key
 -- TODO: object_store_name as a Varchar ? With the 4 "-" symbols, UUID v4 is 36 characters long
-CREATE TABLE source_meta(
+CREATE TABLE source_metas(
    id uuid NOT NULL,
    PRIMARY KEY (id),
    user_id uuid NOT NULL,

@@ -132,7 +132,7 @@ async fn add_source_files_persists_source_file_and_meta() {
 
     // Asserts
     let saved = sqlx::query!(
-        r#"SELECT user_id, object_store_name, source_type as "source_type: SourceType", initial_name FROM source_meta"#,
+        r#"SELECT user_id, object_store_name, source_type as "source_type: SourceType", initial_name FROM source_metas"#,
     )
     .fetch_one(&app.db_pool)
     .await
@@ -204,7 +204,7 @@ async fn add_source_files_persists_all_correct_input_source_files_and_meta_and_r
 
     // Asserts
     let mut files_meta_stream = sqlx::query!(
-        r#"SELECT user_id, object_store_name, source_type as "source_type: SourceType", initial_name FROM source_meta"#
+        r#"SELECT user_id, object_store_name, source_type as "source_type: SourceType", initial_name FROM source_metas"#
     )
     .fetch(&app.db_pool);
 

@@ -28,7 +28,7 @@ impl SourceMetaPostgresRepository {
     ) -> Result<(), SourceMetaPostgresRepositoryError> {
         sqlx::query!(
             r#"
-    INSERT INTO source_meta (id, user_id, object_store_name, source_type, initial_name, added_at, extracted_at)
+    INSERT INTO source_metas (id, user_id, object_store_name, source_type, initial_name, added_at, extracted_at)
     VALUES ($1, $2, $3, $4, $5, $6, NULL)
             "#,
             source_meta.id,
