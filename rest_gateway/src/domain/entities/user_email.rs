@@ -1,29 +1,43 @@
+use common::helper::error_chain_fmt;
 use validator::validate_email;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UserEmail(String);
 
 impl UserEmail {
-    pub fn parse(s: String) -> Result<UserEmail, String> {
-        if validate_email(&s) {
-            Ok(Self(s))
+    pub fn parse(s: &str) -> Result<UserEmail, UserEmailError> {
+        if validate_email(s) {
+            Ok(Self(s.to_string()))
         } else {
-            Err(format!("{} is not a valid user email.", s))
+            Err(UserEmailError::InvalidEmailFormat(format!(
+                "{} is not a valid user email.",
+                s
+            )))
         }
-    }
-}
-
-impl std::fmt::Display for UserEmail {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // We just forward to the Display implementation of
-        // the wrapped String.
-        self.0.fmt(f)
     }
 }
 
 impl AsRef<str> for UserEmail {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl std::fmt::Display for UserEmail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(thiserror::Error)]
+pub enum UserEmailError {
+    #[error("Invalid email format: {0}")]
+    InvalidEmailFormat(String),
+}
+
+impl std::fmt::Debug for UserEmailError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
     }
 }
 
@@ -51,24 +65,24 @@ mod tests {
 
     #[quickcheck_macros::quickcheck]
     fn valid_emails_are_parsed_successfully(valid_email: ValidEmailFixture) -> bool {
-        UserEmail::parse(valid_email.0).is_ok()
+        UserEmail::parse(&valid_email.0).is_ok()
     }
 
     #[test]
     fn empty_string_is_rejected() {
-        let email = "".to_string();
+        let email = "";
         assert_err!(UserEmail::parse(email));
     }
 
     #[test]
     fn email_missing_at_symbol_is_rejected() {
-        let email = "ursuladomain.com".to_string();
+        let email = "ursuladomain.com";
         assert_err!(UserEmail::parse(email));
     }
 
     #[test]
     fn email_missing_subject_is_rejected() {
-        let email = "@domain.com".to_string();
+        let email = "@domain.com";
         assert_err!(UserEmail::parse(email));
     }
 }

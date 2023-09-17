@@ -15,7 +15,7 @@ use tracing::info;
 #[tracing::instrument(name = "Search content handler", skip(message_rabbitmq_repository))]
 pub async fn search_content(
     message_rabbitmq_repository: web::Data<RabbitMQMessageRepository>,
-    body: web::Json<BodyData>,
+    body: web::Json<SearchContentBodyData>,
 ) -> Result<HttpResponse, SearchContentError> {
     info!("Searching contents for query: {}", body.query);
 
@@ -36,7 +36,7 @@ pub async fn search_content(
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct BodyData {
+pub struct SearchContentBodyData {
     query: String,
     limit: Option<usize>,
 }
