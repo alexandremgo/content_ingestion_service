@@ -2,6 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use chrono::Utc;
 use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
+use fake::{
+    faker::internet::en::{Password, SafeEmail},
+    Fake,
+};
 use lapin::{
     message::DeliveryResult,
     options::{BasicConsumeOptions, BasicPublishOptions, QueueBindOptions, QueueDeclareOptions},
@@ -219,6 +223,13 @@ impl TestApp {
             .unwrap();
 
         (user_id, token)
+    }
+
+    pub fn get_test_user_credentials(&self) -> (String, String) {
+        let email = SafeEmail().fake();
+        let password = Password(8..24).fake();
+
+        (email, password)
     }
 }
 

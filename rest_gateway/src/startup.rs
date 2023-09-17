@@ -15,12 +15,13 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
-    controllers::{add_source_files::add_source_files, health_check, search_content},
+    controllers::{add_source_files, create_account, health_check, search_content},
     middlewares::jwt_authentication::middleware::RequireAuth,
     repositories::{
         jwt_authentication_repository::JwtAuthenticationRepository,
         source_file_s3_repository::S3Repository,
         source_meta_postgres_repository::SourceMetaPostgresRepository,
+        user_postgres_repository::UserPostgresRepository,
     },
 };
 
@@ -88,6 +89,7 @@ impl Application {
         let s3_repository = S3Repository::new(s3_bucket.clone());
 
         let source_meta_repository = SourceMetaPostgresRepository::new();
+        let user_repository = UserPostgresRepository::new();
 
         let auth_repository = JwtAuthenticationRepository::new(
             settings.jwt.secret.clone(),
@@ -102,6 +104,7 @@ impl Application {
             message_rabbitmq_repository,
             s3_repository,
             source_meta_repository,
+            user_repository,
             auth_repository,
         )?;
 
@@ -146,6 +149,7 @@ pub fn run(
     message_rabbitmq_repository: RabbitMQMessageRepository,
     s3_repository: S3Repository,
     source_meta_repository: SourceMetaPostgresRepository,
+    user_repository: UserPostgresRepository,
     auth_repository: JwtAuthenticationRepository,
 ) -> Result<Server, std::io::Error> {
     // Wraps the connection to a db in smart pointers
@@ -156,6 +160,7 @@ pub fn run(
     // Those repositories are shared among all threads.
     let s3_repository = Data::new(s3_repository);
     let source_meta_repository = Data::new(source_meta_repository);
+    let user_repository = Data::new(user_repository);
     let auth_repository = Data::new(auth_repository);
 
     // `move` to capture variables from the surrounding environment
@@ -175,10 +180,12 @@ pub fn run(
                     .wrap(RequireAuth::new(auth_repository.clone())),
             )
             .route("/search", web::post().to(search_content))
+            .route("/account/create", web::post().to(create_account))
             // Used to create SQL transaction
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
+            .app_data(user_repository.clone())
             .data_factory(move || {
                 let message_rabbitmq_repository = message_rabbitmq_repository.clone();
 
