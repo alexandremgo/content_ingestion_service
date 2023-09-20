@@ -20,14 +20,16 @@ pub async fn create_account(
     user_repository: web::Data<UserPostgresRepository>,
     body: web::Json<CreateAccountBodyData>,
 ) -> Result<HttpResponse, CreateAccountError> {
-    info!(email=body.email, "Creating account");
+    info!(email = body.email, "Creating account");
 
     let user = User::create(&body.email, Secret::new(body.password.clone()))
         .await
-        .map_err(|e| match e {
+        .map_err(|error| match error {
             UserError::EmailError(_) => CreateAccountError::InvalidEmail(body.email.clone()),
             UserError::PasswordError(e) => CreateAccountError::InvalidPassword(format!("{}", e)),
-            UserError::InternalError(e) => CreateAccountError::UserInternalError(e),
+            UserError::InternalError(_) | UserError::InvalidCredentials(_) => {
+                CreateAccountError::InternalError(error.into())
+            }
         })?;
 
     let mut transaction = pool

@@ -70,7 +70,7 @@ async fn a_valid_user_will_be_able_to_use_their_password_for_credentials() {
     .expect("Failed to fetch newly created user");
 
     let stored_password = Secret::new(created_user.password_hash);
-    let stored_password = UserPassword::parse(stored_password).unwrap();
+    let stored_password = UserPassword::parse(&stored_password).unwrap();
 
     // Checks that the stored password is the same as the one used to create the account
     assert!(stored_password.verify(Secret::new(body.password)).is_ok());
