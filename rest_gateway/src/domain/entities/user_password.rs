@@ -43,7 +43,7 @@ impl UserPassword {
     /// # Params
     /// - `password_hash_str`: serialized PHC-format hashed password
     #[tracing::instrument(name = "Parsing password hash", skip(password_hash_str))]
-    pub fn parse(password_hash_str: Secret<String>) -> Result<UserPassword, UserPasswordError> {
+    pub fn parse(password_hash_str: &Secret<String>) -> Result<UserPassword, UserPasswordError> {
         let expected_password_hash = PasswordHash::new(password_hash_str.expose_secret())?;
         Ok(UserPassword(Secret::new(
             expected_password_hash.serialize().to_string(),
@@ -55,7 +55,6 @@ impl UserPassword {
     /// CPU-intensive task: it is a good idea to run it in another thread
     ///
     /// # Params
-    /// - `expected_password_hash`: The PHC-format hashed password
     /// - `password_candidate`: The password to verify
     #[tracing::instrument(name = "Verifying password hash", skip(self, password_candidate))]
     pub fn verify(&self, password_candidate: Secret<String>) -> Result<(), UserPasswordError> {
@@ -126,7 +125,7 @@ mod tests {
         .unwrap()
         .to_string();
 
-        let password_hash = UserPassword::parse(Secret::new(password_hash)).unwrap();
+        let password_hash = UserPassword::parse(&Secret::new(password_hash)).unwrap();
 
         let check = password_hash.verify(Secret::new(password));
 
