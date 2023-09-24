@@ -1,13 +1,10 @@
 use chrono::Utc;
 use common::helper::error_chain_fmt;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgExecutor;
 
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
 
-pub struct SourceMetaPostgresRepository {
-    // Not needed as a transaction is always used
-    // pg_pool: PgPool,
-}
+pub struct SourceMetaPostgresRepository {}
 
 impl Default for SourceMetaPostgresRepository {
     fn default() -> Self {
@@ -20,10 +17,10 @@ impl SourceMetaPostgresRepository {
         Self {}
     }
 
-    #[tracing::instrument(name = "Saving new source meta in database", skip(self, transaction))]
+    #[tracing::instrument(name = "Saving new source meta in database", skip(self, db_executor))]
     pub async fn add_source_meta(
         &self,
-        transaction: &mut Transaction<'_, Postgres>,
+        db_executor: impl PgExecutor<'_>,
         source_meta: &SourceMeta,
     ) -> Result<(), SourceMetaPostgresRepositoryError> {
         sqlx::query!(
@@ -38,7 +35,7 @@ impl SourceMetaPostgresRepository {
             source_meta.initial_name.to_string(),
             Utc::now()
         )
-        .execute(transaction)
+        .execute(db_executor)
         .await?;
 
         Ok(())

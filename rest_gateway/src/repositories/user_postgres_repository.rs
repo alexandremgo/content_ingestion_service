@@ -1,13 +1,10 @@
 use crate::domain::entities::user::{CheckingUser, CreatingUser};
 use common::helper::error_chain_fmt;
 use secrecy::Secret;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgExecutor;
 
 /// User repository implemented using Postgres
-pub struct UserPostgresRepository {
-    // Not needed as a transaction is always used
-    // pg_pool: PgPool,
-}
+pub struct UserPostgresRepository {}
 
 impl Default for UserPostgresRepository {
     fn default() -> Self {
@@ -20,10 +17,10 @@ impl UserPostgresRepository {
         Self {}
     }
 
-    #[tracing::instrument(name = "Saving new user in database", skip(self, transaction))]
+    #[tracing::instrument(name = "Saving new user in database", skip(self, db_executor))]
     pub async fn add_user(
         &self,
-        transaction: &mut Transaction<'_, Postgres>,
+        db_executor: impl PgExecutor<'_>,
         user: &CreatingUser,
     ) -> Result<(), UserPostgresRepositoryError> {
         sqlx::query!(
@@ -37,16 +34,16 @@ impl UserPostgresRepository {
             user.created_at,
             user.updated_at
         )
-        .execute(transaction)
+        .execute(db_executor)
         .await?;
 
         Ok(())
     }
 
-    #[tracing::instrument(name = "Checking user in database", skip(self, transaction))]
+    #[tracing::instrument(name = "Checking user in database", skip(self, db_executor))]
     pub async fn check_user(
         &self,
-        transaction: &mut Transaction<'_, Postgres>,
+        db_executor: impl PgExecutor<'_>,
         email: &str,
     ) -> Result<CheckingUser, UserPostgresRepositoryError> {
         let record = sqlx::query!(
@@ -56,7 +53,7 @@ impl UserPostgresRepository {
             "#,
             email,
         )
-        .fetch_one(transaction)
+        .fetch_one(db_executor)
         .await
         .map_err(|_| UserPostgresRepositoryError::UserDoesNotExist(email.to_string()))?;
 
