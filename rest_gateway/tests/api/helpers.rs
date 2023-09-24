@@ -14,7 +14,11 @@ use lapin::{
 };
 use rest_gateway::{
     configuration::{get_configuration, DatabaseSettings},
-    repositories::jwt_authentication_repository::JwtAuthenticationRepository,
+    domain::entities::user::User,
+    repositories::{
+        jwt_authentication_repository::JwtAuthenticationRepository,
+        user_postgres_repository::UserPostgresRepository,
+    },
     startup::{get_connection_pool, get_rabbitmq_connection, Application},
 };
 use s3::Bucket;
@@ -59,6 +63,9 @@ pub struct TestApp {
 
     // To fake authentication for tests
     jwt_authentication_repository: JwtAuthenticationRepository,
+
+    // To create fake users for tests
+    user_repository: UserPostgresRepository,
 }
 
 /// A test API client / test suite
@@ -225,11 +232,37 @@ impl TestApp {
         (user_id, token)
     }
 
+    /// Returns a tuple (email, password)
     pub fn get_test_user_credentials(&self) -> (String, String) {
         let email = SafeEmail().fake();
         let password = Password(8..24).fake();
 
         (email, password)
+    }
+
+    /// Creates a user into the db and returns its associated email/password
+    pub async fn create_test_user_account(&self) -> (Uuid, String, String) {
+        let (email, password) = self.get_test_user_credentials();
+        let user = User::create(&email, Secret::new(password.clone()))
+            .await
+            .unwrap();
+
+        self.user_repository
+            .add_user(&self.db_pool, &user)
+            .await
+            .unwrap();
+
+        (user.id, email, password)
+    }
+
+    pub fn decode_access_token(&self, access_token: &str) -> Uuid {
+        let user_id = self
+            .jwt_authentication_repository
+            .decode_token(access_token)
+            .unwrap();
+        let user_id = Uuid::parse_str(user_id.as_str()).unwrap();
+
+        user_id
     }
 }
 
@@ -302,6 +335,8 @@ pub async fn spawn_app() -> TestApp {
         configuration.jwt.expire_in_s as i64,
     );
 
+    let user_repository = UserPostgresRepository::new();
+
     TestApp {
         address: format!("http://127.0.0.1:{}", application_port),
         port: application_port,
@@ -314,6 +349,7 @@ pub async fn spawn_app() -> TestApp {
             configuration.rabbitmq.exchange_name_prefix, configuration.rabbitmq.content_exchange
         ),
         jwt_authentication_repository,
+        user_repository,
     }
 }
 

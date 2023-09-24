@@ -15,7 +15,7 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{
     configuration::{DatabaseSettings, ObjectStorageSettings, RabbitMQSettings, Settings},
-    controllers::{add_source_files, create_account, health_check, search_content},
+    controllers::{add_source_files, create_account, health_check, log_in_account, search_content},
     middlewares::jwt_authentication::middleware::RequireAuth,
     repositories::{
         jwt_authentication_repository::JwtAuthenticationRepository,
@@ -181,11 +181,12 @@ pub fn run(
             )
             .route("/search", web::post().to(search_content))
             .route("/account/create", web::post().to(create_account))
-            // Used to create SQL transaction
+            .route("/account/login", web::post().to(log_in_account))
             .app_data(db_pool.clone())
             .app_data(s3_repository.clone())
             .app_data(source_meta_repository.clone())
             .app_data(user_repository.clone())
+            .app_data(auth_repository.clone())
             .data_factory(move || {
                 let message_rabbitmq_repository = message_rabbitmq_repository.clone();
 

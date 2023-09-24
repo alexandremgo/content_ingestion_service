@@ -53,7 +53,7 @@ async fn a_valid_user_will_be_able_to_use_their_password_for_credentials() {
         password: test_password,
     };
 
-    let response = reqwest::Client::new()
+    let _response = reqwest::Client::new()
         .post(&format!("{}/account/create", &app.address))
         .json(&body)
         .send()

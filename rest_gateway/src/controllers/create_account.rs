@@ -14,7 +14,7 @@ use crate::{
     domain::entities::user::User, repositories::user_postgres_repository::UserPostgresRepository,
 };
 
-#[tracing::instrument(name = "Create user account", skip(user_repository, body))]
+#[tracing::instrument(name = "Create user account", skip(pool, user_repository, body))]
 pub async fn create_account(
     pool: web::Data<PgPool>,
     user_repository: web::Data<UserPostgresRepository>,

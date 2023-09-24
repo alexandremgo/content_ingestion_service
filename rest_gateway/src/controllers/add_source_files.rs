@@ -91,7 +91,7 @@ pub async fn add_source_files(
     user_id: web::ReqData<UserIdFromToken>,
 ) -> Result<HttpResponse, AddSourceFilesError> {
     let user_id = user_id.into_inner().0;
-    info!("🦄 GOT user_id: {}", user_id);
+    info!("Request for user_id: {}", user_id);
 
     let mut response = AddSourceFilesResponse {
         file_status: Vec::new(),
