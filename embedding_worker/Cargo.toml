@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+common = { path = "../common"}
 rust-bert = "0.21.0"
 lapin = "2.3.1"
 serde_json = "1.0.97"

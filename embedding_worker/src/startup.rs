@@ -16,14 +16,13 @@ use crate::{
 use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
 use qdrant_client::prelude::{QdrantClient, QdrantClientConfig};
-use rust_bert::pipelines::sentence_embeddings::SentenceEmbeddingsModelType;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 /// Holds the newly built RabbitMQ connection and any server/useful properties
 pub struct Application {
     // RabbitMQ
-    rabbitmq_publishing_connection: Arc<RabbitMQConnection>,
+    _rabbitmq_publishing_connection: Arc<RabbitMQConnection>,
     rabbitmq_content_exchange_name: String,
 
     // handlers: Vec<Box<dyn Future<Output = Result<(), ApplicationError>>>>,
@@ -67,7 +66,7 @@ impl Application {
         let embeddings_service = HuggingFaceEmbeddingsService::new();
 
         let mut app = Self {
-            rabbitmq_publishing_connection,
+            _rabbitmq_publishing_connection: rabbitmq_publishing_connection,
             rabbitmq_content_exchange_name,
             handlers: vec![],
         };

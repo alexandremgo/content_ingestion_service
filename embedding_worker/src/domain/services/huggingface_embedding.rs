@@ -1,19 +1,15 @@
+use crate::domain::{entities::content_point::Embeddings, services::helpers::split_sentences};
+use common::helper::error_chain_fmt;
 use rust_bert::{
     pipelines::sentence_embeddings::{SentenceEmbeddingsBuilder, SentenceEmbeddingsModelType},
     RustBertError,
 };
-use tracing::{debug, info};
-
 use std::{
     sync::mpsc,
     thread::{self, JoinHandle},
 };
 use tokio::{sync::oneshot, task};
-
-use crate::{
-    domain::{entities::content_point::Embeddings, services::helpers::split_sentences},
-    helper::error_chain_fmt,
-};
+use tracing::{debug, info};
 
 /// Service to generate embeddings from a text content, using models available from Hugging Face.
 ///

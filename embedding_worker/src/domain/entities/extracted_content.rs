@@ -1,4 +1,4 @@
-use crate::helper::error_chain_fmt;
+use common::helper::error_chain_fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use common::helper::error_chain_fmt;
 use futures::StreamExt;
 
 use lapin::{
@@ -10,20 +11,19 @@ use lapin::{
     types::FieldTable,
     Connection as RabbitMQConnection, ExchangeKind,
 };
-use tracing::{debug, error, info, info_span, Instrument};
+use tracing::{error, info, info_span, Instrument};
 use uuid::Uuid;
 
 use crate::{
     domain::{
         entities::{
-            content_point::{self, ContentPoint, ContentPointPayload},
+            content_point::{ContentPoint, ContentPointPayload},
             extracted_content::ExtractedContent,
         },
         services::huggingface_embedding::{
             HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
         },
     },
-    helper::error_chain_fmt,
     repositories::{
         content_point_qdrant_repository::{
             ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
@@ -236,20 +236,18 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 #[tracing::instrument(
     name = "Executing handler on extracted content",
     skip(
-        message_rabbitmq_repository,
+        _message_rabbitmq_repository,
         content_point_qdrant_repository,
         embeddings_service
     )
 )]
 pub async fn execute_handler(
-    message_rabbitmq_repository: &mut MessageRabbitMQRepository,
+    _message_rabbitmq_repository: &mut MessageRabbitMQRepository,
     content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
     embeddings_service: Arc<HuggingFaceEmbeddingsService>,
     extracted_content: &ExtractedContent,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
-    let ExtractedContent {
-        metadata, content, ..
-    } = extracted_content;
+    let ExtractedContent { content, .. } = extracted_content;
 
     let embeddings_list = embeddings_service.generate_embeddings(&content).await?;
 

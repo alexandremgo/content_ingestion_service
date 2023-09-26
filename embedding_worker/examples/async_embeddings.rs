@@ -1,8 +1,5 @@
-use embedding_worker::{
-    configuration::get_configuration,
-    startup::Application,
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
-};
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
+use embedding_worker::{configuration::get_configuration, startup::Application};
 
 use tracing::info;
 

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common::helper::error_chain_fmt;
 use qdrant_client::{
     prelude::QdrantClient,
     qdrant::{
@@ -9,10 +10,7 @@ use qdrant_client::{
 };
 use tracing::info;
 
-use crate::{
-    domain::entities::content_point::{ContentPoint, ContentPointPayload},
-    helper::error_chain_fmt,
-};
+use crate::domain::entities::content_point::{ContentPoint, ContentPointPayload};
 
 /// Repository for (extracted) content vectors (ContentVector) persisted in Qdrant
 pub struct ContentPointQdrantRepository {

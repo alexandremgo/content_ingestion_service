@@ -1,8 +1,8 @@
 use chrono::Utc;
+use common::telemetry::{get_tracing_subscriber, init_tracing_subscriber};
 use embedding_worker::{
     configuration::get_configuration,
     startup::{get_rabbitmq_connection, Application},
-    telemetry::{get_tracing_subscriber, init_tracing_subscriber},
 };
 use lapin::{Channel, Connection as RabbitMQConnection};
 use tokio::time::{sleep, Duration};

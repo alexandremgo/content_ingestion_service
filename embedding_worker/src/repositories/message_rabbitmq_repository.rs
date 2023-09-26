@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use common::helper::error_chain_fmt;
 use lapin::{
     options::{BasicPublishOptions, ExchangeDeclareOptions},
     types::FieldTable,
     BasicProperties, Channel, Connection, ExchangeKind,
 };
 use tracing::info;
-
-use crate::helper::error_chain_fmt;
 
 /// Message broker implemented with RabbitMQ
 ///
