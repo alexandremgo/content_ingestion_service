@@ -179,7 +179,12 @@ pub fn run(
                     .to(add_source_files)
                     .wrap(RequireAuth::new(auth_repository.clone())),
             )
-            .route("/search", web::post().to(search_content))
+            .route(
+                "/search",
+                web::post()
+                    .to(search_content)
+                    .wrap(RequireAuth::new(auth_repository.clone())),
+            )
             .route("/account/create", web::post().to(create_account))
             .route("/account/login", web::post().to(log_in_account))
             .app_data(db_pool.clone())

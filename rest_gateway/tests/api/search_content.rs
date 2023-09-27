@@ -2,6 +2,7 @@ use common::{
     constants::routing_keys::SEARCH_FULLTEXT_ROUTING_KEY,
     dtos::fulltext_search_response::{FulltextSearchResponseData, FulltextSearchResponseDto},
 };
+use reqwest::header::{HeaderValue, AUTHORIZATION};
 use tracing::info;
 
 use crate::helpers::spawn_app;
@@ -9,6 +10,9 @@ use crate::helpers::spawn_app;
 #[tokio::test(flavor = "multi_thread")]
 async fn search_content_returns_a_response_from_a_valid_request() {
     let mut app = spawn_app().await;
+
+    // Fake user and access token
+    let (_, token) = app.get_test_user_token();
 
     // Sets up a fake response from the search service
     let fake_response = FulltextSearchResponseDto::Ok {
@@ -30,6 +34,10 @@ async fn search_content_returns_a_response_from_a_valid_request() {
 
     let response = reqwest::Client::new()
         .post(&format!("{}/search", &app.address))
+        .header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        )
         .json(&body)
         .send()
         .await

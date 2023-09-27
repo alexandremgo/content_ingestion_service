@@ -127,7 +127,7 @@ impl TestApp {
                     lapin::Error::ProtocolError(_) | lapin::Error::InvalidChannelState(_) => {
                         warn!(
                             "RabbitMQ queue error: queue {} does not exist, retrying ...",
-                            queue_name
+                            queue.name()
                         );
                         // When the queue does not exist, the channel is closed
                         self.reset_rabbitmq_channel().await;
