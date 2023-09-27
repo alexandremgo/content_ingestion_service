@@ -4,6 +4,7 @@ application:
 rabbitmq:
   port: 5672
   content_exchange: "content"
+  queue_name_prefix: "semantic_search_service"
 
 qdrant:
   rest_port: 6333

@@ -193,9 +193,16 @@ pub async fn spawn_app() -> TestApp {
     let configuration = {
         let mut c = get_configuration().expect("Failed to read configuration.");
 
-        // Uses a different exchange for each test case
+        // Uses a different exchange and queue names for each test case
         c.rabbitmq.exchange_name_prefix = format!(
-            "test_queue_handlers_{}_{}",
+            "test_{}_{}_{}",
+            c.rabbitmq.exchange_name_prefix,
+            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
+            Uuid::new_v4()
+        );
+        c.rabbitmq.queue_name_prefix = format!(
+            "test_{}_{}_{}",
+            c.rabbitmq.queue_name_prefix,
             Utc::now().format("%Y-%m-%d_%H-%M-%S"),
             Uuid::new_v4()
         );

@@ -1,8 +1,7 @@
+use crate::helpers::{spawn_app, TestApp};
 use chrono::Utc;
-use embedding_worker::{
-    domain::entities::extracted_content::ExtractedContent,
-    handlers::handler_content_extracted::ROUTING_KEY,
-};
+use common::dtos::extracted_content::ExtractedContentDto;
+use embedding_worker::handlers::handler_content_extracted::ROUTING_KEY;
 use fake::{faker::lorem::en::Sentences, Fake};
 use futures::lock::Mutex;
 use lapin::{
@@ -16,8 +15,6 @@ use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, info_span, warn, Instrument};
 use uuid::Uuid;
-
-use crate::helpers::{spawn_app, TestApp};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn handler_binds_queue_to_exchange_and_acknowledges_content_extracted_message_when_correct() {
@@ -42,7 +39,7 @@ async fn handler_binds_queue_to_exchange_and_acknowledges_content_extracted_mess
             )
         });
 
-    let extracted_content = ExtractedContent {
+    let extracted_content = ExtractedContentDto {
         id: Uuid::new_v4(),
         metadata: json!({}),
         content: Sentences(3..10).fake::<Vec<String>>().join(" "),

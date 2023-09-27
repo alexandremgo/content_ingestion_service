@@ -1,14 +1,17 @@
 use std::sync::Arc;
 
 use common::{
+    constants::routing_keys::CONTENT_EXTRACTED_ROUTING_KEY,
     core::rabbitmq_message_repository::{
         RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
     },
+    dtos::extracted_content::ExtractedContentDto,
     helper::error_chain_fmt,
 };
 use futures::StreamExt;
 
 use lapin::{
+    message::Delivery,
     options::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
         QueueBindOptions, QueueDeclareOptions,
@@ -22,8 +25,8 @@ use uuid::Uuid;
 use crate::{
     domain::{
         entities::{
+            content::ContentEntity,
             content_point::{ContentPoint, ContentPointPayload},
-            extracted_content::ExtractedContent,
         },
         services::huggingface_embedding::{
             HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
@@ -34,7 +37,7 @@ use crate::{
     },
 };
 
-pub const ROUTING_KEY: &str = "content_extracted.v1";
+pub const ROUTING_KEY: &str = CONTENT_EXTRACTED_ROUTING_KEY;
 
 #[derive(thiserror::Error)]
 pub enum RegisterHandlerContentExtractedError {
@@ -69,6 +72,7 @@ impl std::fmt::Debug for RegisterHandlerContentExtractedError {
 pub async fn register_handler(
     rabbitmq_consuming_connection: RabbitMQConnection,
     exchange_name: String,
+    queue_name_prefix: String,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
     message_repository: RabbitMQMessageRepository,
     content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
@@ -88,21 +92,25 @@ pub async fn register_handler(
         )
         .await?;
 
-    // When supplying an empty string queue name, RabbitMQ generates a name for us, returned from the queue declaration request
-    let queue = channel
-        .queue_declare("", QueueDeclareOptions::default(), FieldTable::default())
+    // In order to have several nodes of this service as consumers of the same queue: use a specific queue name
+    let queue_name = queue_name(&queue_name_prefix);
+
+    channel
+        .queue_declare(
+            &queue_name,
+            QueueDeclareOptions::default(),
+            FieldTable::default(),
+        )
         .await?;
 
     info!(
         "Declared queue {} on exchange {}, binding on {}",
-        queue.name(),
-        exchange_name,
-        ROUTING_KEY
+        queue_name, exchange_name, ROUTING_KEY
     );
 
     channel
         .queue_bind(
-            queue.name().as_str(),
+            &queue_name,
             &exchange_name,
             ROUTING_KEY,
             QueueBindOptions::default(),
@@ -116,12 +124,7 @@ pub async fn register_handler(
     };
 
     let mut consumer = channel
-        .basic_consume(
-            queue.name().as_str(),
-            "",
-            consumer_options,
-            FieldTable::default(),
-        )
+        .basic_consume(&queue_name, "", consumer_options, FieldTable::default())
         .await?;
 
     // Inits for this specific handler
@@ -129,9 +132,7 @@ pub async fn register_handler(
 
     info!(
         "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
-        queue.name(),
-        exchange_name,
-        ROUTING_KEY,
+        queue_name, exchange_name, ROUTING_KEY,
     );
 
     while let Some(delivery) = consumer.next().await {
@@ -143,31 +144,30 @@ pub async fn register_handler(
                 Err(error) => {
                     error!(
                         ?error,
-                        "Failed to consume queue message on queue {}",
-                        queue.name()
+                        "Failed to consume queue message on queue {}", queue_name
                     );
                     return;
                 }
             };
 
-            let extracted_content = match ExtractedContent::try_parsing(&delivery.data) {
-                Ok(job) => job,
-                Err(error) => {
-                    error!(
-                        ?error,
-                        "Failed to parse extracted content message data: {}", error
-                    );
-                    return;
-                }
-            };
+            // let extracted_content = match ExtractedContent::try_parsing(&delivery.data) {
+            //     Ok(job) => job,
+            //     Err(error) => {
+            //         error!(
+            //             ?error,
+            //             "Failed to parse extracted content message data: {}", error
+            //         );
+            //         return;
+            //     }
+            // };
 
-            info!(?extracted_content, "Received extracted content");
+            // info!(?extracted_content, "Received extracted content");
 
             match execute_handler(
                 &message_repository,
                 content_point_qdrant_repository.clone(),
                 embeddings_service.clone(),
-                &extracted_content,
+                &delivery,
             )
             .await
             {
@@ -177,19 +177,11 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.ack(BasicAckOptions::default()).await {
-                        error!(
-                            ?error,
-                            ?extracted_content,
-                            "Failed to ack extract_content_job message"
-                        );
+                        error!(?error, "Failed to ack extract_content_job message");
                     }
                 }
                 Err(error) => {
-                    error!(
-                        ?error,
-                        ?extracted_content,
-                        "Failed to handle extract_content_job message"
-                    );
+                    error!(?error, "Failed to handle extract_content_job message");
 
                     // TODO: maybe depending on the error we could reject the message and not just nack
                     info!(
@@ -197,11 +189,7 @@ pub async fn register_handler(
                         delivery.delivery_tag
                     );
                     if let Err(error) = delivery.nack(BasicNackOptions::default()).await {
-                        error!(
-                            ?error,
-                            ?extracted_content,
-                            "Failed to nack extracted content message"
-                        );
+                        error!(?error, "Failed to nack extracted content message");
                     }
                 }
             }
@@ -210,13 +198,17 @@ pub async fn register_handler(
             "Handling consumed message",
             routing_key = ROUTING_KEY,
             exchange = exchange_name,
-            queue = %queue.name(),
+            queue = queue_name,
             message_id = %uuid::Uuid::new_v4(),
         ))
         .await
     }
 
     Ok(())
+}
+
+pub fn queue_name(queue_name_prefix: &str) -> String {
+    format!("{}_{}", queue_name_prefix, ROUTING_KEY)
 }
 
 #[derive(thiserror::Error)]
@@ -227,6 +219,8 @@ pub enum ExecuteHandlerContentExtractedError {
     HuggingFaceEmbeddingsServiceError(#[from] HuggingFaceEmbeddingsServiceError),
     #[error(transparent)]
     ContentPointQdrantRepositoryError(#[from] ContentPointQdrantRepositoryError),
+    #[error("{0}")]
+    MessageParsingError(String),
 }
 
 impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
@@ -247,11 +241,22 @@ pub async fn execute_handler(
     _message_repository: &RabbitMQMessageRepository,
     content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
     embeddings_service: Arc<HuggingFaceEmbeddingsService>,
-    extracted_content: &ExtractedContent,
+    message: &Delivery,
 ) -> Result<(), ExecuteHandlerContentExtractedError> {
-    let ExtractedContent { content, .. } = extracted_content;
+    let extracted_content = ExtractedContentDto::try_parsing(&message.data).map_err(|error| {
+        ExecuteHandlerContentExtractedError::MessageParsingError(format!(
+            "Failed to parse extracted content message data: {}",
+            error
+        ))
+    })?;
 
-    let embeddings_list = embeddings_service.generate_embeddings(&content).await?;
+    info!(?extracted_content, "Received extracted content");
+
+    let content: ContentEntity = extracted_content.into();
+
+    let embeddings_list = embeddings_service
+        .generate_embeddings(&content.content)
+        .await?;
 
     // Extracted content for all the generated embeddings from content sentences ?
     let content_points: Vec<ContentPoint> = embeddings_list
@@ -260,7 +265,7 @@ pub async fn execute_handler(
             id: Uuid::new_v4(),
             vector: embeddings.to_vec(),
             payload: ContentPointPayload {
-                content: content.to_string(),
+                content: content.content.to_string(),
             },
         })
         .collect();

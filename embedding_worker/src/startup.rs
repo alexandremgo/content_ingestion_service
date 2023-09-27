@@ -21,6 +21,7 @@ pub struct Application {
     // RabbitMQ
     _rabbitmq_publishing_connection: Arc<RabbitMQConnection>,
     rabbitmq_content_exchange_name: String,
+    rabbitmq_queue_name_prefix: String,
 
     // handlers: Vec<Box<dyn Future<Output = Result<(), ApplicationError>>>>,
     handlers: Vec<JoinHandle<Result<(), ApplicationError>>>,
@@ -65,6 +66,7 @@ impl Application {
         let mut app = Self {
             _rabbitmq_publishing_connection: rabbitmq_publishing_connection,
             rabbitmq_content_exchange_name,
+            rabbitmq_queue_name_prefix: settings.rabbitmq.queue_name_prefix,
             handlers: vec![],
         };
 
@@ -101,6 +103,7 @@ impl Application {
         embeddings_service: HuggingFaceEmbeddingsService,
     ) -> Result<(), ApplicationError> {
         let exchange_name = self.rabbitmq_content_exchange_name.clone();
+        let queue_name_prefix = self.rabbitmq_queue_name_prefix.clone();
         let embeddings_service = Arc::new(embeddings_service);
 
         // We could have several message handlers running in parallel bound with the same binding key to the same exchange.
@@ -109,6 +112,7 @@ impl Application {
             handler_content_extracted::register_handler(
                 rabbitmq_consuming_connection,
                 exchange_name,
+                queue_name_prefix,
                 message_repository.clone(),
                 content_point_qdrant_repository.clone(),
                 embeddings_service.clone(),

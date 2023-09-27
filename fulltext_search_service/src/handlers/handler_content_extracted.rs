@@ -78,7 +78,7 @@ pub async fn register_handler(
     // In order to have several nodes of this service as consumers of the same queue: use a specific queue name
     let queue_name = queue_name(&queue_name_prefix);
 
-    let _ = channel
+    channel
         .queue_declare(
             &queue_name,
             QueueDeclareOptions::default(),
