@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use common::helper::error_chain_fmt;
+use common::{
+    core::rabbitmq_message_repository::{
+        RabbitMQMessageRepository, RabbitMQMessageRepositoryError,
+    },
+    helper::error_chain_fmt,
+};
 use futures::StreamExt;
 
 use lapin::{
@@ -24,11 +29,8 @@ use crate::{
             HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
         },
     },
-    repositories::{
-        content_point_qdrant_repository::{
-            ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
-        },
-        message_rabbitmq_repository::{MessageRabbitMQRepository, MessageRabbitMQRepositoryError},
+    repositories::content_point_qdrant_repository::{
+        ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
     },
 };
 
@@ -39,7 +41,7 @@ pub enum RegisterHandlerContentExtractedError {
     #[error(transparent)]
     RabbitMQError(#[from] lapin::Error),
     #[error(transparent)]
-    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
 }
 
 impl std::fmt::Debug for RegisterHandlerContentExtractedError {
@@ -59,7 +61,7 @@ impl std::fmt::Debug for RegisterHandlerContentExtractedError {
     name = "Register message handler",
     skip(
         rabbitmq_consuming_connection,
-        message_rabbitmq_repository,
+        message_repository,
         content_point_qdrant_repository,
         embeddings_service
     )
@@ -68,7 +70,7 @@ pub async fn register_handler(
     rabbitmq_consuming_connection: RabbitMQConnection,
     exchange_name: String,
     // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
-    mut message_rabbitmq_repository: MessageRabbitMQRepository,
+    message_repository: RabbitMQMessageRepository,
     content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
     embeddings_service: Arc<HuggingFaceEmbeddingsService>,
 ) -> Result<(), RegisterHandlerContentExtractedError> {
@@ -123,7 +125,7 @@ pub async fn register_handler(
         .await?;
 
     // Inits for this specific handler
-    message_rabbitmq_repository.try_init().await?;
+    let message_repository = message_repository.try_init().await?;
 
     info!(
         "📡 Handler consuming from queue {}, bound to {} with {}, waiting for messages ...",
@@ -162,7 +164,7 @@ pub async fn register_handler(
             info!(?extracted_content, "Received extracted content");
 
             match execute_handler(
-                &mut message_rabbitmq_repository,
+                &message_repository,
                 content_point_qdrant_repository.clone(),
                 embeddings_service.clone(),
                 &extracted_content,
@@ -220,7 +222,7 @@ pub async fn register_handler(
 #[derive(thiserror::Error)]
 pub enum ExecuteHandlerContentExtractedError {
     #[error(transparent)]
-    MessageRabbitMQRepositoryError(#[from] MessageRabbitMQRepositoryError),
+    RabbitMQMessageRepositoryError(#[from] RabbitMQMessageRepositoryError),
     #[error(transparent)]
     HuggingFaceEmbeddingsServiceError(#[from] HuggingFaceEmbeddingsServiceError),
     #[error(transparent)]
@@ -236,13 +238,13 @@ impl std::fmt::Debug for ExecuteHandlerContentExtractedError {
 #[tracing::instrument(
     name = "Executing handler on extracted content",
     skip(
-        _message_rabbitmq_repository,
+        _message_repository,
         content_point_qdrant_repository,
         embeddings_service
     )
 )]
 pub async fn execute_handler(
-    _message_rabbitmq_repository: &mut MessageRabbitMQRepository,
+    _message_repository: &RabbitMQMessageRepository,
     content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
     embeddings_service: Arc<HuggingFaceEmbeddingsService>,
     extracted_content: &ExtractedContent,

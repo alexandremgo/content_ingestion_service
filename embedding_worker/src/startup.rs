@@ -1,21 +1,18 @@
-use std::sync::Arc;
-
 use crate::{
     configuration::{QdrantSettings, RabbitMQSettings, Settings},
     domain::services::huggingface_embedding::{
         HuggingFaceEmbeddingsService, HuggingFaceEmbeddingsServiceError,
     },
     handlers::handler_content_extracted::{self, RegisterHandlerContentExtractedError},
-    repositories::{
-        content_point_qdrant_repository::{
-            ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
-        },
-        message_rabbitmq_repository::MessageRabbitMQRepository,
+    repositories::content_point_qdrant_repository::{
+        ContentPointQdrantRepository, ContentPointQdrantRepositoryError,
     },
 };
+use common::core::rabbitmq_message_repository::RabbitMQMessageRepository;
 use futures::{future::join_all, TryFutureExt};
 use lapin::Connection as RabbitMQConnection;
 use qdrant_client::prelude::{QdrantClient, QdrantClientConfig};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -43,7 +40,7 @@ impl Application {
             settings.rabbitmq.exchange_name_prefix, settings.rabbitmq.content_exchange
         );
 
-        let message_rabbitmq_repository = MessageRabbitMQRepository::new(
+        let message_repository = RabbitMQMessageRepository::new(
             rabbitmq_publishing_connection.clone(),
             &rabbitmq_content_exchange_name,
         );
@@ -73,7 +70,7 @@ impl Application {
 
         app.prepare_message_handlers(
             rabbitmq_consuming_connection,
-            message_rabbitmq_repository,
+            message_repository,
             content_point_qdrant_repository,
             embeddings_service,
         )
@@ -90,7 +87,7 @@ impl Application {
         skip(
             self,
             rabbitmq_consuming_connection,
-            message_rabbitmq_repository,
+            message_repository,
             content_point_qdrant_repository,
             embeddings_service
         )
@@ -98,7 +95,8 @@ impl Application {
     pub async fn prepare_message_handlers(
         &mut self,
         rabbitmq_consuming_connection: RabbitMQConnection,
-        message_rabbitmq_repository: MessageRabbitMQRepository,
+        // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
+        message_repository: RabbitMQMessageRepository,
         content_point_qdrant_repository: Arc<ContentPointQdrantRepository>,
         embeddings_service: HuggingFaceEmbeddingsService,
     ) -> Result<(), ApplicationError> {
@@ -111,7 +109,7 @@ impl Application {
             handler_content_extracted::register_handler(
                 rabbitmq_consuming_connection,
                 exchange_name,
-                message_rabbitmq_repository.clone(),
+                message_repository.clone(),
                 content_point_qdrant_repository.clone(),
                 embeddings_service.clone(),
             )
