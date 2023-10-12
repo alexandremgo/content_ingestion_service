@@ -81,11 +81,6 @@ impl RabbitMQMessageRepository {
     /// repository will be associated
     #[tracing::instrument(name = "🏗️ Initializing MessageRabbitMQRepository", skip(self))]
     pub async fn try_init(self) -> Result<Self, RabbitMQMessageRepositoryError> {
-        if let Self::Ready { .. } = self {
-            info!("Already initialized",);
-            return Ok(self);
-        }
-
         match self {
             Self::Ready { .. } => {
                 info!("Already initialized",);
