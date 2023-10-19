@@ -1,0 +1,10 @@
+application:
+  host: 0.0.0.0
+
+kafka:
+  bootstrap_host: kafka0
+  bootstrap_port: 9090
+  group_id_prefix: local
+
+grpc:
+  app_server_port: 10001

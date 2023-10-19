@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package fulltext_search_service;
+
+// Interface exported by the server.
+service FulltextSearchService {
+  // Obtains the contents matching the search query
+  //
+  // TODO: an empty content if no matching content was found ?
+  // TODO: or stream as the result ?
+  rpc Search(SearchRequest) returns (SearchResponse) {}
+
+  // Results are streamed rather than returned at once (e.g. in a response message with a
+  // repeated field), as the rectangle may cover a large area and contain a huge number of features.
+  // rpc ListFeatures(Rectangle) returns (stream Feature) {}
+}
+
+message Metadata {
+  // Define JSON-like metadata properties here as key-value pairs.
+  map<string, string> properties = 1;
+}
+
+message SearchRequest {
+  string query = 1;
+  // JSON-like metadata properties
+  Metadata metadata = 2;
+  uint32 limit = 3;
+}
+
+message SearchResponse {
+  string id = 1;
+  Metadata metadata = 2;
+  string content = 3;
+}
+
