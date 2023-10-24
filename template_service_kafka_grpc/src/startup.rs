@@ -5,7 +5,7 @@ use tracing::info;
 
 use crate::{
     configuration::Settings,
-    controllers::handler_a_kafka_message::{self, KafkaRegisterHandlerError},
+    controllers::{handler_a_kafka_message::{self, KafkaRegisterHandlerError}, handler_a_grpc_message::{self, GrpcRegisterHandlerError}},
 };
 
 /// Holds all clients and handlers used by our application
@@ -69,8 +69,16 @@ impl Application {
 
         // TODO: a message repository for kafka and a message repository for grpc ?
     ) -> Result<(), ApplicationError> {
+        // let spawn_handler = tokio::spawn(
+        //     handler_a_kafka_message::register_handler(kafka_client_config.clone(), "test_topic")
+        //         .map_err(|e| e.into()),
+        // );
+
+        // self.handlers.push(spawn_handler);
+
+
         let spawn_handler = tokio::spawn(
-            handler_a_kafka_message::register_handler(kafka_client_config.clone(), "test_topic")
+            handler_a_grpc_message::register_handler()
                 .map_err(|e| e.into()),
         );
 
@@ -116,4 +124,6 @@ pub enum ApplicationError {
     IOError(#[from] std::io::Error),
     #[error(transparent)]
     KafkaRegisterHandlerError(#[from] KafkaRegisterHandlerError),
+    #[error(transparent)]
+    GrpcRegisterHandlerError(#[from] GrpcRegisterHandlerError),
 }
