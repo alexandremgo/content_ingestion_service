@@ -4361,6 +4361,7 @@ dependencies = [
  "env_logger 0.10.0",
  "futures",
  "log",
+ "meilisearch-sdk",
  "prost 0.12.1",
  "rand",
  "rdkafka",

@@ -1,3 +1,5 @@
 pub mod configuration;
-pub mod startup;
 pub mod controllers;
+pub mod domain;
+pub mod repositories;
+pub mod startup;

@@ -43,6 +43,7 @@ impl Application {
         //     &rabbitmq_content_exchange_name,
         // );
 
+
         let mut app = Self { handlers: vec![] };
 
         app.prepare_message_handlers(kafka_client_config).await?;
@@ -69,12 +70,12 @@ impl Application {
 
         // TODO: a message repository for kafka and a message repository for grpc ?
     ) -> Result<(), ApplicationError> {
-        // let spawn_handler = tokio::spawn(
-        //     handler_a_kafka_message::register_handler(kafka_client_config.clone(), "test_topic")
-        //         .map_err(|e| e.into()),
-        // );
+        let spawn_handler = tokio::spawn(
+            handler_a_kafka_message::register_handler(kafka_client_config.clone(), "test_topic")
+                .map_err(|e| e.into()),
+        );
 
-        // self.handlers.push(spawn_handler);
+        self.handlers.push(spawn_handler);
 
 
         let spawn_handler = tokio::spawn(
