@@ -8,3 +8,7 @@ kafka:
 
 grpc:
   app_server_port: 10001
+
+meilisearch:
+  host: "meilisearch"
+  api_key: "masterkey"

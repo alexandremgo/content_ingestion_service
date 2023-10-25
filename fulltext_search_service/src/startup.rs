@@ -156,7 +156,7 @@ pub async fn get_rabbitmq_connection(
     RabbitMQConnection::connect(&config.get_uri(), config.get_connection_properties()).await
 }
 
-/// Set up a client to Meilisearch
+/// Sets up a client to Meilisearch
 pub fn get_meilisearch_client(config: &MeilisearchSettings) -> MeilisearchClient {
     MeilisearchClient::new(config.endpoint(), Some(config.api_key.expose_secret()))
 }

@@ -1,3 +1,4 @@
+use secrecy::Secret;
 use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
 
@@ -6,6 +7,7 @@ pub struct Settings {
     pub application: ApplicationSettings,
     pub kafka: KafkaSettings,
     pub grpc: GrpcSettings,
+    pub meilisearch: MeilisearchSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -26,6 +28,21 @@ pub struct KafkaSettings {
 #[derive(Debug, Deserialize, Clone)]
 pub struct GrpcSettings {
     pub app_server_port: u16,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MeilisearchSettings {
+    pub api_key: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub host: String,
+    pub contents_index: String,
+}
+
+impl MeilisearchSettings {
+    pub fn endpoint(&self) -> String {
+        format!("http://{}:{}", self.host, self.port)
+    }
 }
 
 

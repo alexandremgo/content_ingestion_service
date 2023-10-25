@@ -1,12 +1,28 @@
+use std::sync::Arc;
+
 use futures::{future::join_all, TryFutureExt};
 use rdkafka::ClientConfig;
+use secrecy::ExposeSecret;
 use tokio::task::JoinHandle;
 use tracing::info;
 
 use crate::{
-    configuration::Settings,
-    controllers::{handler_a_kafka_message::{self, KafkaRegisterHandlerError}, handler_a_grpc_message::{self, GrpcRegisterHandlerError}},
+    configuration::{Settings, MeilisearchSettings},
+    controllers::{
+        handler_a_grpc_message::{self, GrpcRegisterHandlerError},
+        handler_a_kafka_message::{self, KafkaRegisterHandlerError},
+    },
+    ports::content_repository::{ContentRepository, self},
+    repositories::meilisearch_content_repository::MeilisearchContentRepository,
 };
+
+// Dependency injection container
+shaku::module! {
+    pub DIContainer {
+        components = [MeilisearchContentRepository],
+        providers = []
+    }
+}
 
 /// Holds all clients and handlers used by our application
 pub struct Application {
@@ -43,10 +59,20 @@ impl Application {
         //     &rabbitmq_content_exchange_name,
         // );
 
+        let meilisearch_client = get_meilisearch_client(&settings.meilisearch);
+        let content_repository = MeilisearchContentRepository::new(
+            meilisearch_client.clone(),
+            settings.meilisearch.contents_index,
+        );
+        let content_repository = Box::new(content_repository);
+
+        let di_container = DIContainer::builder()
+            .with_component_override::<dyn ContentRepository>(content_repository)
+            .build();
 
         let mut app = Self { handlers: vec![] };
 
-        app.prepare_message_handlers(kafka_client_config).await?;
+        app.prepare_message_handlers(di_container, kafka_client_config).await?;
 
         Ok(app)
     }
@@ -59,10 +85,11 @@ impl Application {
     /// TODO: handlers -> controllers ?
     #[tracing::instrument(
         name = "Preparing the messages handlers",
-        skip(self, kafka_client_config)
+        skip(self, di_container, kafka_client_config)
     )]
     pub async fn prepare_message_handlers(
         &mut self,
+        di_container: DIContainer,
         kafka_client_config: ClientConfig,
         // rabbitmq_consuming_connection: Arc<RabbitMQConnection>,
         // Not an `Arc` shared reference as we want to initialize a new repository for each thread (or at least for each handler)
@@ -70,6 +97,9 @@ impl Application {
 
         // TODO: a message repository for kafka and a message repository for grpc ?
     ) -> Result<(), ApplicationError> {
+        // TODO: or just using it directly here and gets the injected repositories etc. ?
+        let di_container = Arc::new(di_container);
+
         let spawn_handler = tokio::spawn(
             handler_a_kafka_message::register_handler(kafka_client_config.clone(), "test_topic")
                 .map_err(|e| e.into()),
@@ -77,11 +107,8 @@ impl Application {
 
         self.handlers.push(spawn_handler);
 
-
-        let spawn_handler = tokio::spawn(
-            handler_a_grpc_message::register_handler()
-                .map_err(|e| e.into()),
-        );
+        let spawn_handler =
+            tokio::spawn(handler_a_grpc_message::register_handler(di_container.clone()).map_err(|e| e.into()));
 
         self.handlers.push(spawn_handler);
 
@@ -116,6 +143,11 @@ impl Application {
         info!("👋 Bye!");
         Ok(())
     }
+}
+
+/// Sets up a client to Meilisearch
+pub fn get_meilisearch_client(config: &MeilisearchSettings) -> meilisearch_sdk::Client {
+    meilisearch_sdk::Client::new(config.endpoint(), Some(config.api_key.expose_secret()))
 }
 
 // TODO: check

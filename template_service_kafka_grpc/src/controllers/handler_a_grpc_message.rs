@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use shaku::HasComponent;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, info_span, Instrument};
@@ -8,6 +11,9 @@ use common::dtos::proto::fulltext_search_service::{
     fulltext_search_service_server::{FulltextSearchService, FulltextSearchServiceServer},
     SearchRequest, SearchResponse,
 };
+
+use crate::ports::content_repository::ContentRepository;
+use crate::startup::DIContainer;
 
 pub struct SearchController {}
 
@@ -31,11 +37,12 @@ impl FulltextSearchService for SearchController {
 }
 
 /// Registers the gRPC server to a given method
-#[tracing::instrument(name = "Register gRPC server for a given method")]
-pub async fn register_handler() -> Result<(), GrpcRegisterHandlerError> {
+#[tracing::instrument(name = "Register gRPC server for a given method", skip(di_container))]
+pub async fn register_handler(di_container: Arc<DIContainer>) -> Result<(), GrpcRegisterHandlerError> {
     let addr = "[::1]:10000".parse().unwrap();
 
     println!("RouteGuideServer listening on: {}", addr);
+    let content_repository: &dyn ContentRepository = di_container.resolve_ref();
 
     let controller = SearchController {};
 

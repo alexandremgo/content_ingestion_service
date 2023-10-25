@@ -1,1 +1,3 @@
-
+meilisearch:
+  port: 7700
+  contents_index: "contents"
