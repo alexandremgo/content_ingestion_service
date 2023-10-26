@@ -1,1 +1,1 @@
-pub mod meilisearch_content_repository;
+pub mod content_meilisearch_repository;

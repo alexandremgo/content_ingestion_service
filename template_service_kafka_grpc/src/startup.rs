@@ -13,13 +13,13 @@ use crate::{
         handler_a_kafka_message::{self, KafkaRegisterHandlerError},
     },
     ports::content_repository::{ContentRepository, self},
-    repositories::meilisearch_content_repository::MeilisearchContentRepository,
+    repositories::content_meilisearch_repository::ContentMeilisearchRepository,
 };
 
 // Dependency injection container
 shaku::module! {
     pub DIContainer {
-        components = [MeilisearchContentRepository],
+        components = [ContentMeilisearchRepository],
         providers = []
     }
 }
@@ -60,7 +60,7 @@ impl Application {
         // );
 
         let meilisearch_client = get_meilisearch_client(&settings.meilisearch);
-        let content_repository = MeilisearchContentRepository::new(
+        let content_repository = ContentMeilisearchRepository::new(
             meilisearch_client.clone(),
             settings.meilisearch.contents_index,
         );

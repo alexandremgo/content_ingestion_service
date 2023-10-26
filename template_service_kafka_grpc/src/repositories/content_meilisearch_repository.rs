@@ -11,12 +11,12 @@ const DEFAULT_SEARCH_LIMIT: usize = 10;
 /// Repository for `ContentEntity` persisted in Meilisearch
 #[derive(Component)]
 #[shaku(interface = ContentRepository)]
-pub struct MeilisearchContentRepository {
+pub struct ContentMeilisearchRepository {
     client: Client,
     index: String,
 }
 
-impl MeilisearchContentRepository {
+impl ContentMeilisearchRepository {
     pub fn new(client: Client, index: String) -> Self {
         Self { client, index }
     }
@@ -27,7 +27,7 @@ impl MeilisearchContentRepository {
 }
  
 #[async_trait]
-impl ContentRepository for MeilisearchContentRepository {
+impl ContentRepository for ContentMeilisearchRepository {
 
     #[tracing::instrument(name = "Saving content to Meilishearch", skip(self))]
     async fn save(
@@ -76,12 +76,12 @@ impl ContentRepository for MeilisearchContentRepository {
 }
 
 #[derive(thiserror::Error)]
-pub enum MeilisearchContentRepositoryError {
+pub enum ContentMeilisearchRepositoryError {
     #[error(transparent)]
     MeilisearchError(#[from] meilisearch_sdk::errors::Error),
 }
 
-impl std::fmt::Debug for MeilisearchContentRepositoryError {
+impl std::fmt::Debug for ContentMeilisearchRepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
     }
