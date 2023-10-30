@@ -12,13 +12,28 @@ use common::dtos::proto::fulltext_search_service::{
     SearchRequest, SearchResponse,
 };
 
+use crate::domain::use_cases::search_fulltext::SearchFulltextUseCase;
 use crate::ports::content_repository::ContentRepository;
 use crate::startup::DIContainer;
 
-pub struct SearchController {}
+pub struct SearchFulltextGrpcController {
+    search_fulltext_use_case: SearchFulltextUseCase,
+}
+
+impl SearchFulltextGrpcController {
+    pub fn new(content_repository: Arc<dyn ContentRepository>) -> SearchFulltextGrpcController {
+        let search_fulltext_use_case = SearchFulltextUseCase::new(content_repository);
+
+        // TODO: here we would pass the implementation of each repository etc. ?
+        // Repositories need to handle their own pool of connection ?
+        SearchFulltextGrpcController {
+            search_fulltext_use_case
+        }
+    }
+}
 
 #[tonic::async_trait]
-impl FulltextSearchService for SearchController {
+impl FulltextSearchService for SearchFulltextGrpcController {
     #[tracing::instrument(name = "Full-text search", skip(self, request))]
     async fn search(
         &self,
@@ -39,16 +54,18 @@ impl FulltextSearchService for SearchController {
 /// Registers the gRPC server to a given method
 #[tracing::instrument(name = "Register gRPC server for a given method", skip(di_container))]
 pub async fn register_handler(di_container: Arc<DIContainer>) -> Result<(), GrpcRegisterHandlerError> {
-    let addr = "[::1]:10000".parse().unwrap();
+// #[tracing::instrument(name = "Register gRPC server for a given method", skip(content_repository))]
+// pub async fn register_handler(content_repository: Arc<dyn ContentRepository>) -> Result<(), GrpcRegisterHandlerError> {
+    // let addr = "[::1]:10000".parse().unwrap();
 
-    println!("RouteGuideServer listening on: {}", addr);
-    let content_repository: &dyn ContentRepository = di_container.resolve_ref();
+    // println!("RouteGuideServer listening on: {}", addr);
+    // let content_repository: &dyn ContentRepository = di_container.resolve_ref();
 
-    let controller = SearchController {};
+    // let controller = SearchFulltextGrpcController::new(content_repository);
 
-    let server = FulltextSearchServiceServer::new(controller);
+    // let server = FulltextSearchServiceServer::new(controller);
 
-    Server::builder().add_service(server).serve(addr).await?;
+    // Server::builder().add_service(server).serve(addr).await?;
 
     Ok(())
 }

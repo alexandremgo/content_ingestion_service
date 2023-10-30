@@ -83,6 +83,8 @@ impl std::fmt::Debug for KafkaExecuteHandlerError {
     }
 }
 
+// TODO: could be a class (Controller or maybe it's a use-case,
+// which is setup the needed repository implementations, and call an `execute` method.
 #[tracing::instrument(name = "Executing handler on a kafka message")]
 pub async fn execute_handler(message: &OwnedMessage) -> Result<(), KafkaExecuteHandlerError> {
     let dto = match message.payload_view::<str>() {

@@ -1,1 +1,2 @@
 pub mod content_meilisearch_repository;
+pub mod source_meta_postgres_repository;
