@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use crate::ports::content_repository::ContentRepository;
-
+use crate::repositories::source_meta_postgres_repository::SourceMetaRepository;
 
 pub struct SearchFulltextRequest {
 
@@ -15,14 +14,15 @@ pub struct SearchFulltextError {
 
 }
 
+/// TODO: first trying with only source meta repository. Then try with meilisearch content repository.
 pub struct SearchFulltextUseCase {
-  content_repository: Arc<dyn ContentRepository>,
+  source_meta_repository: Arc<dyn SourceMetaRepository>,
 }
 
 impl SearchFulltextUseCase {
-  pub fn new(content_repository: Arc<dyn ContentRepository>) -> SearchFulltextUseCase {
+  pub fn new(source_meta_repository: Arc<dyn SourceMetaRepository>) -> SearchFulltextUseCase {
     SearchFulltextUseCase {
-      content_repository
+      source_meta_repository
     }
   }
 

@@ -14,22 +14,27 @@ use common::dtos::proto::fulltext_search_service::{
 
 use crate::domain::use_cases::search_fulltext::SearchFulltextUseCase;
 use crate::ports::content_repository::ContentRepository;
+use crate::repositories::source_meta_postgres_repository::SourceMetaRepository;
 use crate::startup::DIContainer;
 
 pub struct SearchFulltextGrpcController {
-    search_fulltext_use_case: SearchFulltextUseCase,
+    // search_fulltext_use_case: SearchFulltextUseCase,
 }
 
 impl SearchFulltextGrpcController {
-    pub fn new(content_repository: Arc<dyn ContentRepository>) -> SearchFulltextGrpcController {
-        let search_fulltext_use_case = SearchFulltextUseCase::new(content_repository);
+    pub fn new(source_meta_repository: Arc<dyn SourceMetaRepository>) -> SearchFulltextGrpcController {
+        let search_fulltext_use_case = SearchFulltextUseCase::new(source_meta_repository);
 
         // TODO: here we would pass the implementation of each repository etc. ?
         // Repositories need to handle their own pool of connection ?
         SearchFulltextGrpcController {
-            search_fulltext_use_case
+            // search_fulltext_use_case
         }
     }
+
+    // pub fn init_use_cases() ?
+    // TODO: do we need to init a use case at each request ? because gRPC keeps the controller instance alive and use
+    // it for each request ?
 }
 
 #[tonic::async_trait]

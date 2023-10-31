@@ -8,131 +8,7 @@ use tracing::warn;
 
 use crate::domain::entities::source_meta::{SourceMeta, SourceType};
 
-// TODO: is it inheriting/implementing a "SqlRepository" ?
-// #[async_trait]
-// pub trait SourceMetaRepository {
-//     async fn add_source_meta(
-//         &self,
-//         db_executor: impl PgExecutor<'_>,
-//         source_meta: &SourceMeta,
-//     ) -> Result<(), SourceMetaPostgresRepositoryError>;
-// }
-
-pub struct SourceMetaPostgresRepository {
-    connectionPool: Arc<PgPool>,
-}
-
-impl SourceMetaPostgresRepository {
-    pub fn new(connectionPool: Arc<PgPool>) -> Self {
-        Self { connectionPool }
-    }
-
-    pub async fn beginWithTransaction(&mut self) -> Result<(), SourceMetaPostgresRepository> {
-        // TODO
-        let mut transaction = self.connectionPool.begin().await.unwrap();
-        // .context("Failed to acquire a Postgres connection from the pool")?;
-
-        Ok(())
-    }
-}
-
-/// A type that contains or can provide a database
-/// connection to use for executing queries against the database.
-// enum SqlExecutor {
-//     Transaction(impl Executor<'_>)
-
-// }
-
-// TODO: imagine the controllers know the repository implementation
-#[async_trait]
-pub trait Repository {
-    // type UnitOfWork;
-    type UnitOfWork<'unitOfWorkLifetime>;
-
-    #[must_use]
-    async fn begin_uow<'a>(&self) -> Self::UnitOfWork<'a>;
-    // Take UoW by value, to finalize it.
-    fn commit<'a>(&self, uow: Self::UnitOfWork<'a>) -> Result<(), RepositoryError>;
-
-    // Take UoW by reference, to allow combining multiple actions into the unit
-    // fn method_that_needs_transaction(&self, uow: &Self::UnitOfWork) -> /* */;
-    // fn method_that_does_not_need_a_transaction(&self) -> /* */;
-}
-
 pub enum RepositoryError {}
-
-#[async_trait]
-pub trait SourceMetaRepository: Repository {
-    // async fn add_source_meta<'a>(
-    //     &self,
-    //     uow: Self::UnitOfWork<'a>,
-    //     source_meta: &SourceMeta,
-    // ) -> Result<(), SourceMetaPostgresRepositoryError>;
-
-    async fn add_source_meta(
-        &self,
-        db_executor: impl PgExecutor<'_>,
-        source_meta: &SourceMeta,
-    ) -> Result<(), SourceMetaPostgresRepositoryError>;
-}
-
-#[async_trait]
-impl Repository for SourceMetaPostgresRepository {
-    type UnitOfWork<'unitOfWorkLifetime> = Transaction<'unitOfWorkLifetime, Postgres>;
-
-    // TODO: HERE
-    // TODO: OK: great but how do we make this work with other repositories ?
-    // They don't know about SourceMetaPostgresRepository unit of work ?
-    // Could we have a parent SqlPostgresRepository handling this ?
-    async fn begin_uow<'a>(&self) -> Self::UnitOfWork<'a> {
-        self.connectionPool.begin().await.unwrap()
-    }
-
-    // Take UoW by value, to finalize it.
-    fn commit<'a>(&self, uow: Self::UnitOfWork<'a>) -> Result<(), RepositoryError> {
-        Ok(())
-    }
-}
-
-// #[async_trait]
-// impl SourceMetaRepository for SourceMetaPostgresRepository {
-//     #[tracing::instrument(name = "Saving new source meta in database", skip(self, db_executor))]
-//     async fn add_source_meta<'a>(
-//         &self,
-//         // uow: Self::UnitOfWork<'a>,
-//         db_executor: impl PgExecutor<'_>,
-//         source_meta: &SourceMeta,
-//     ) -> Result<(), SourceMetaPostgresRepositoryError> {
-//         Ok(())
-//     }
-// }
-
-#[async_trait]
-impl SourceMetaRepository for SourceMetaPostgresRepository {
-    #[tracing::instrument(name = "Saving new source meta in database", skip(self, db_executor))]
-    async fn add_source_meta(
-        &self,
-        db_executor: impl PgExecutor<'_>,
-        source_meta: &SourceMeta,
-    ) -> Result<(), SourceMetaPostgresRepositoryError> {
-        sqlx::query!(
-            r#"
-    INSERT INTO source_metas (id, user_id, object_store_name, source_type, initial_name, added_at, extracted_at)
-    VALUES ($1, $2, $3, $4, $5, $6, NULL)
-            "#,
-            source_meta.id,
-            source_meta.user_id,
-            source_meta.object_store_name,
-            source_meta.source_type.to_owned() as SourceType,
-            source_meta.initial_name.to_string(),
-            Utc::now()
-        )
-        .execute(db_executor)
-        .await?;
-
-        Ok(())
-    }
-}
 
 #[derive(thiserror::Error)]
 pub enum SourceMetaPostgresRepositoryError {
@@ -152,12 +28,11 @@ impl std::fmt::Debug for SourceMetaPostgresRepositoryError {
 /// will be able to mutate the instance. Not the use-case.
 /// TODO: well actually a commit needs to be updated, so it makes sense i guess that all the methods takes a &mut
 #[async_trait]
-pub trait RepositoryCore2 {
+pub trait RepositoryCore {
     // type UnitOfWork;
     // type UnitOfWork<'unitOfWorkLifetime>;
-    type DBDriver;
 
-    #[must_use]
+    // #[must_use]
     // async fn begin_uow<'a>(&self) -> Self::UnitOfWork<'a>;
     async fn begin_unit_of_work(&mut self) -> Result<(), RepositoryError>;
 
@@ -172,7 +47,7 @@ pub trait RepositoryCore2 {
 }
 
 #[async_trait]
-pub trait SourceMetaRepository2: RepositoryCore2 {
+pub trait SourceMetaRepository: RepositoryCore {
     // Either take an executor ? Or
     async fn add_source_meta(
         &mut self,
@@ -183,15 +58,13 @@ pub trait SourceMetaRepository2: RepositoryCore2 {
 /// Implemented as a state machine ?
 /// # Lifetimes
 /// - a: the unit of work (transaction) has to live until the current repository instance is dropped if necessary
-pub struct PostgresRepository2<'a> {
+pub struct PostgresRepository<'a> {
     connection_pool: Arc<PgPool>,
     current_unit_of_work: Option<Transaction<'a, Postgres>>,
 }
 
 #[async_trait]
-impl<'a> RepositoryCore2 for PostgresRepository2<'a> {
-    type DBDriver = Postgres;
-
+impl<'a> RepositoryCore for PostgresRepository<'a> {
     async fn begin_unit_of_work(&mut self) -> Result<(), RepositoryError> {
         let transaction = self.connection_pool.begin().await.unwrap();
         self.current_unit_of_work = Some(transaction);
@@ -210,14 +83,6 @@ impl<'a> RepositoryCore2 for PostgresRepository2<'a> {
     }
 }
 
-// pub type DB = Pool<Postgres>;
-
-// pub trait Queryer {
-//   // fn get()...
-//   // fn select()...
-//   // fn execute()...
-// }
-
 /// By having each Repository struct (here Postgres) implementing all of the module resources ports
 /// it eliminates the need to share transaction/executor between different resources' repositories.
 ///
@@ -228,7 +93,7 @@ impl<'a> RepositoryCore2 for PostgresRepository2<'a> {
 /// - question: https://users.rust-lang.org/t/from-slqx-0-7-this-clean-code-doesnt-work-anymore-and-i-cannot-understand-why/97836
 /// - changelog: https://github.com/launchbadge/sqlx/blob/main/CHANGELOG.md#breaking
 #[async_trait]
-impl<'a> SourceMetaRepository2 for PostgresRepository2<'a> {
+impl<'a> SourceMetaRepository for PostgresRepository<'a> {
     #[tracing::instrument(name = "Saving new source meta in database", skip(self))]
     async fn add_source_meta(
         &mut self,
