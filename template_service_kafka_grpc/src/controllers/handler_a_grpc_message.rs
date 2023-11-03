@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use shaku::HasComponent;
+use sqlx::PgPool;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, info_span, Instrument};
@@ -14,27 +15,30 @@ use common::dtos::proto::fulltext_search_service::{
 
 use crate::domain::use_cases::search_fulltext::SearchFulltextUseCase;
 use crate::ports::content_repository::ContentRepository;
-use crate::repositories::source_meta_postgres_repository::SourceMetaRepository;
+use crate::repositories::source_meta_postgres_repository::{
+    PostgresRepository, SourceMetaRepository,
+};
 use crate::startup::DIContainer;
 
+/// Controller manager for the RPC endpoint
+///
+/// An instance of this controller manager is shared between threads
+///
+/// The instances of needed repositories and use-cases are created for each handled request.
+/// The repositories (because they can be mutated when using a transaction for ex) and use-cases (because they depend on repositories)
+/// should not be shared between thread.
+/// So only database connections pools or service clients that are thread-safe can be
+/// properties of the controller manager.
+///
+/// The specific (here gRPC) controller manager knows about the repositories implementations.
 pub struct SearchFulltextGrpcController {
-    // search_fulltext_use_case: SearchFulltextUseCase,
+    postgres_pool: Arc<PgPool>,
 }
 
 impl SearchFulltextGrpcController {
-    pub fn new(source_meta_repository: Arc<dyn SourceMetaRepository>) -> SearchFulltextGrpcController {
-        let search_fulltext_use_case = SearchFulltextUseCase::new(source_meta_repository);
-
-        // TODO: here we would pass the implementation of each repository etc. ?
-        // Repositories need to handle their own pool of connection ?
-        SearchFulltextGrpcController {
-            // search_fulltext_use_case
-        }
+    pub fn new(postgres_pool: Arc<PgPool>) -> SearchFulltextGrpcController {
+        SearchFulltextGrpcController { postgres_pool }
     }
-
-    // pub fn init_use_cases() ?
-    // TODO: do we need to init a use case at each request ? because gRPC keeps the controller instance alive and use
-    // it for each request ?
 }
 
 #[tonic::async_trait]
@@ -46,6 +50,14 @@ impl FulltextSearchService for SearchFulltextGrpcController {
     ) -> Result<Response<SearchResponse>, Status> {
         info!("Search request = {:?}", request);
 
+        let source_meta_repository = PostgresRepository::new(self.postgres_pool.clone());
+        // TODO: is the Arc necessary anymore in the use case ?
+        let source_meta_repository = Arc::new(source_meta_repository);
+        let search_fulltext_use_case = SearchFulltextUseCase::new(source_meta_repository);
+
+        request.
+        let response = search_fulltext_use_case.execute(request.message().into());
+
         let response = SearchResponse {
             id: "test".to_owned(),
             content: "this is a test content".to_owned(),
@@ -56,11 +68,22 @@ impl FulltextSearchService for SearchFulltextGrpcController {
     }
 }
 
+impl From<SearchRequest> for crate::domain::use_cases::search_fulltext::SearchFulltextRequest {
+    fn from(value: SearchRequest) -> Self {
+        crate::domain::use_cases::search_fulltext::SearchFulltextRequest {
+            query: value.query,
+            limit: value.limit,
+        }
+    }
+}
+
 /// Registers the gRPC server to a given method
 #[tracing::instrument(name = "Register gRPC server for a given method", skip(di_container))]
-pub async fn register_handler(di_container: Arc<DIContainer>) -> Result<(), GrpcRegisterHandlerError> {
-// #[tracing::instrument(name = "Register gRPC server for a given method", skip(content_repository))]
-// pub async fn register_handler(content_repository: Arc<dyn ContentRepository>) -> Result<(), GrpcRegisterHandlerError> {
+pub async fn register_handler(
+    di_container: Arc<DIContainer>,
+) -> Result<(), GrpcRegisterHandlerError> {
+    // #[tracing::instrument(name = "Register gRPC server for a given method", skip(content_repository))]
+    // pub async fn register_handler(content_repository: Arc<dyn ContentRepository>) -> Result<(), GrpcRegisterHandlerError> {
     // let addr = "[::1]:10000".parse().unwrap();
 
     // println!("RouteGuideServer listening on: {}", addr);

@@ -63,8 +63,16 @@ pub struct PostgresRepository<'a> {
     current_unit_of_work: Option<Transaction<'a, Postgres>>,
 }
 
+impl<'a> PostgresRepository<'a> {
+    pub fn new(connection_pool: Arc<PgPool>) -> PostgresRepository<'a> {
+        PostgresRepository { connection_pool, current_unit_of_work: None }
+    }
+}
+
 #[async_trait]
 impl<'a> RepositoryCore for PostgresRepository<'a> {
+    /// TODO: actually does not work because otherwise it means that the repository that is shared between the controller threads
+    /// will be mutated ?
     async fn begin_unit_of_work(&mut self) -> Result<(), RepositoryError> {
         let transaction = self.connection_pool.begin().await.unwrap();
         self.current_unit_of_work = Some(transaction);
