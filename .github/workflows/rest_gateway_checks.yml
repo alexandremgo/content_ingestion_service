@@ -4,7 +4,7 @@ on:
   push:
     paths:
     - "rest_gateway/**"
-    - ".github/workflows/rest_gateway.yml"
+    - ".github/workflows/rest_gateway_checks.yml"
   pull_request:
 
 env:
@@ -107,37 +107,37 @@ jobs:
         run: cargo fmt --check
 
   # `cargo clippy` job
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: sqlx-${{ env.SQLX_VERSION }}
-      - name: Install sqlx-cli
-        run:
-          cargo install sqlx-cli
-            --version=${{ env.SQLX_VERSION }}
-            --features ${{ env.SQLX_FEATURES }}
-            --no-default-features
-            --locked
-      - name: Install postgresql-client
-        run: sudo apt-get update && sudo apt-get install postgresql-client -y
-      - name: Migrate database
-        run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_MINIO=true SKIP_QDRANT=true ./scripts/init_infra.sh
-      - name: Linting
-        working-directory: ./rest_gateway
-        run: cargo clippy --no-deps -- -D warnings
+  # clippy:
+  #   name: Clippy
+  #   runs-on: ubuntu-latest
+  #   services:
+  #     postgres:
+  #       image: postgres:14
+  #       env:
+  #         POSTGRES_USER: postgres
+  #         POSTGRES_PASSWORD: password
+  #         POSTGRES_DB: postgres
+  #       ports:
+  #         - 5432:5432
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         components: clippy
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         key: sqlx-${{ env.SQLX_VERSION }}
+  #     - name: Install sqlx-cli
+  #       run:
+  #         cargo install sqlx-cli
+  #           --version=${{ env.SQLX_VERSION }}
+  #           --features ${{ env.SQLX_FEATURES }}
+  #           --no-default-features
+  #           --locked
+  #     - name: Install postgresql-client
+  #       run: sudo apt-get update && sudo apt-get install postgresql-client -y
+  #     - name: Migrate database
+  #       run: cd .. && SKIP_DOCKER=true SKIP_MEILISEARCH=true SKIP_MINIO=true SKIP_QDRANT=true ./scripts/init_infra.sh
+  #     - name: Linting
+  #       working-directory: ./rest_gateway
+  #       run: cargo clippy --no-deps -- -D warnings

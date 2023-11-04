@@ -1,0 +1,54 @@
+name: REST Gateway - Create and Publish Docker image
+
+on: 
+  push:
+    branches: ['main']
+    paths:
+    - "rest_gateway/**"
+    - ".github/workflows/rest_gateway_image.yml"
+
+# Cancels in-progress job or run from the same concurrency group
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: alexandremgo/content_ingestion_service/rest_gateway
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Extract tags and labels from git reference and the github event that triggered this github action 
+      # - `id`: allows the output of this step (named "meta") to be referenced in a subsequent step
+      # - `images`: value provides the base name for the tags and labels.
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      # Build the image, based on your repository's `Dockerfile`, and publishes it
+      # - `context`: to define the build's context as the set of files located in the specified path (root of the project here)
+      # - uses the `tags` and `labels` parameters to tag and label the image with the output from the "meta" step
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: rest_gateway/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
